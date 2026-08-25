@@ -75,6 +75,7 @@ class MQTTSvc(Thread):
         self._queue_high_warned = False
         self.mqttc = None
         self.connect = False
+        self.eqp_state = [-1, -1, -1, -1]
         self._reconnect_delay = 1
         self._last_broker_poll_time = {}
 
@@ -379,28 +380,29 @@ class MQTTSvc(Thread):
         except asyncio.TimeoutError:
             self.logger.error(f"mqtt : timeout : mqtt_publish_status : portno={portno}")
 
-    async def _handle_process_message(self, topic, qos, raw_payload):
-        self.logger.info(f"mqtt : on_message topic={topic}, qos={qos}, data={raw_payload}")
-        if not settings.CLAMP_ENABLE:
+    async def _handle_process_message(self, topic, qos, raw_payload, retain):
+        self.logger.info(f"mqtt : on_message topic={topic}, qos={qos}, retain={retain}, data={raw_payload}")
+        if retain:
             return
 
         payload = json.loads(raw_payload)
-        portno = payload["port_no"]
-        if portno not in self.controller.loadport:
-            self.logger.warning(f"mqtt : {self.topic_server}/Process port_no {portno} is not exist.")
-            return
+        port_no = payload['port_no']
+        copy_payload = payload.copy()
+        copy_payload['type'] = 3
+        self._route_to_device(copy_payload)
+        self.logger.info(f"mqtt : port_no={port_no}, process_state={payload['process_state']}")
 
-        if self.controller.loadport[portno]["com"] != "e84":
-            self.logger.warning(f"mqtt : {self.topic_server}/Process port_no {portno} is not a E84 controller.")
-            return
+    def _route_to_device(self, data):
+        if settings.LEDBOARD2_ENABLE:
+            target = self.controller.device if data["port_no"] < 3 else self.controller.device2
+        else:
+            target = self.controller.device
+        target.on_notify(data)
 
-        controller_id = self.controller.loadport[portno]["id"]
-        if payload["process_state"] == settings.CLAMP_ON:
-            await self._run_e84_cmd(controller_id, "clamp_on")
-            self.logger.info(f"mqtt : port_no={portno}, process_state={payload['process_state']}, CLAMP_ON")
-        elif payload["process_state"] == settings.CLAMP_OFF:
-            await self._run_e84_cmd(controller_id, "clamp_off")
-            self.logger.info(f"mqtt : port_no={portno}, process_state={payload['process_state']}, CLAMP_OFF")
+    async def _handle_response_message(self, topic, qos, raw_payload):
+        self.logger.info(f"mqtt : on_message topic={topic}, qos={qos}, data={raw_payload}")
+        payload = json.loads(raw_payload)
+        self._route_to_device(payload)
 
     async def _handle_ledboard_message(self, topic, qos, raw_payload):
         self.logger.info(f"mqtt : on_message topic={topic}, qos={qos}, data={raw_payload}")
@@ -558,12 +560,15 @@ class MQTTSvc(Thread):
         qos = getattr(msg, "qos", None)
         raw_payload = msg.payload
         properties = getattr(msg, "properties", None)
+        retain = getattr(msg, "retain", False)
 
         try:
             if topic.endswith("Process"):
-                await self._handle_process_message(topic, qos, raw_payload)
+                await self._handle_process_message(topic, qos, raw_payload, retain)
             elif topic.endswith("LEDBoard"):
                 await self._handle_ledboard_message(topic, qos, raw_payload)
+            elif topic.endswith("response"):
+                await self._handle_response_message(topic, qos, raw_payload)
             elif topic.endswith("Request"):
                 await self._handle_request_message(raw_payload, properties)
             elif topic.startswith("$SYS/broker/log/N"):
