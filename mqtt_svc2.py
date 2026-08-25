@@ -32,11 +32,6 @@ MQTT_WATCHDOG_MAX_GAP = max(90, MAX_RECONNECT_DELAY + int(getattr(settings, "MQT
 # asyncio.wait_for. A stuck thread cannot be killed, but bounding it here keeps
 # one wedged call from occupying a slot in the shared default executor.
 CMD_EXECUTOR_MAX_WORKERS = 4
-# Coalescing window for broker-log "New client connected" re-polls: on a broker
-# restart many RPA_ clients reconnect within a short window, and each such log
-# line used to fire a status re-poll for every E84 port. Collapse that burst
-# into at most one re-poll per port per window.
-BROKER_LOG_POLL_DEBOUNCE_SECONDS = 3.0
 
 
 @dataclass
@@ -77,7 +72,6 @@ class MQTTSvc(Thread):
         self.connect = False
         self.eqp_state = [-1, -1, -1, -1]
         self._reconnect_delay = 1
-        self._last_broker_poll_time = {}
 
         self._stop_requested = False
         self._stop_lock = threading.Lock()
@@ -232,14 +226,11 @@ class MQTTSvc(Thread):
             entered = True
             self.mqttc = client
             await client.subscribe(self.topic, settings.MQTT_QOS)
-            await client.subscribe(f"{self.topic}/LEDBoard", settings.MQTT_QOS)
+            await client.subscribe(f"{self.topic}/Request", settings.MQTT_QOS)
             await client.subscribe(self.topic_server, settings.MQTT_QOS)
             await client.subscribe(f"{self.topic_server}/Process", settings.MQTT_QOS)
-            await client.subscribe(f"{self.topic_server}/Request", settings.MQTT_QOS)
-            try:
-                await client.subscribe("$SYS/broker/log/N", 0)
-            except Exception as err:
-                self.logger.warning(f"mqtt : subscribe $SYS/broker/log/N failed : {str(err)}")
+            await client.subscribe(f"{self.topic_server}/LRC/response", settings.MQTT_QOS)
+            await client.subscribe(f"{self.topic_server}/WIP/response", settings.MQTT_QOS)
             self._on_connect()
 
             birth_info = {"id": self.client_id, "status": "online"}
@@ -360,26 +351,6 @@ class MQTTSvc(Thread):
             self.connect = False
             return False
 
-    async def _run_e84_cmd(self, controller_id, command):
-        try:
-            await asyncio.wait_for(
-                self._run_in_cmd_executor(self.controller.e84[controller_id].run_cmd, command),
-                timeout=MAX_CMD_WAIT,
-            )
-        except asyncio.TimeoutError:
-            self.logger.error(
-                f"mqtt : timeout : e84 run_cmd : controller_id={controller_id}, command={command}"
-            )
-
-    async def _publish_rfid_status(self, service, portno):
-        try:
-            await asyncio.wait_for(
-                self._run_in_cmd_executor(service.mqtt_publish_status, portno),
-                timeout=MAX_CMD_WAIT,
-            )
-        except asyncio.TimeoutError:
-            self.logger.error(f"mqtt : timeout : mqtt_publish_status : portno={portno}")
-
     async def _handle_process_message(self, topic, qos, raw_payload, retain):
         self.logger.info(f"mqtt : on_message topic={topic}, qos={qos}, retain={retain}, data={raw_payload}")
         if retain:
@@ -448,69 +419,14 @@ class MQTTSvc(Thread):
 
         self._route_to_device(payload)
 
-    async def _handle_ledboard_message(self, topic, qos, raw_payload):
-        self.logger.info(f"mqtt : on_message topic={topic}, qos={qos}, data={raw_payload}")
-        if not settings.LEDBOARD_ENABLE:
-            return
-
-        payload = json.loads(raw_payload)
-        if "type" in payload and payload["type"] in [4, 5]:
-            return
-
-        portno = payload["port_no"]
-        if portno not in self.controller.loadport:
-            self.logger.warning(f"mqtt : {topic} port_no {portno} is not exist.")
-            return
-
-        loadport = self.controller.loadport[portno]
-        if loadport["com"] == "e84":
-            controller_id = loadport["id"]
-
-            if payload["ledboard_state"] == settings.LEDBOARD_RESET:
-                self.controller.equipment_state = 3
-                if loadport["dual"] > 0:
-                    await self._run_e84_cmd(controller_id, "reset2")
-                else:
-                    await self._run_e84_cmd(controller_id, "reset")
-                self.logger.info(f"mqtt : port_no={portno}, ledboard_state={payload['ledboard_state']}, RESET")
-            elif payload["ledboard_state"] == settings.LEDBOARD_MODE:
-                if loadport["dual"] > 0:
-                    if self.controller.e84[controller_id].mode[portno - 1] == 1:
-                        await self._run_e84_cmd(controller_id, "manual2")
-                        self.logger.info(f"mqtt : port_no={portno}, ledboard_state={payload['ledboard_state']}, MANUAL2")
-                    else:
-                        await self._run_e84_cmd(controller_id, "auto2")
-                        self.logger.info(f"mqtt : port_no={portno}, ledboard_state={payload['ledboard_state']}, AUTO2")
-                else:
-                    if self.controller.e84[controller_id].mode[0] == 1:
-                        await self._run_e84_cmd(controller_id, "manual")
-                        self.logger.info(f"mqtt : port_no={portno}, ledboard_state={payload['ledboard_state']}, MANUAL")
-                    else:
-                        await self._run_e84_cmd(controller_id, "auto")
-                        self.logger.info(f"mqtt : port_no={portno}, ledboard_state={payload['ledboard_state']}, AUTO")
-            elif payload["ledboard_state"] == settings.LEDBOARD_INITIAL and loadport["dual"] <= 0:
-                await self._run_e84_cmd(controller_id, "status_ledboard")
-                self.logger.info(f"mqtt : port_no={portno}, ledboard_state={payload['ledboard_state']}, STATUS")
-            return
-
-        if not settings.RFID_DEVICE_ONLY:
-            self.logger.warning(f"mqtt : {topic} port_no {portno} is not a E84 controller.")
-            return
-
-        if payload["ledboard_state"] != settings.LEDBOARD_INITIAL:
-            return
-
-        if self.controller.rfid:
-            self.logger.info(f"mqtt : port_no={portno}, ledboard_state={payload['ledboard_state']}, STATUS")
-            await self._publish_rfid_status(self.controller.rfid, portno)
-        if self.controller.rfid_UHF:
-            self.logger.info(f"mqtt : port_no={portno}, ledboard_state={payload['ledboard_state']}, STATUS")
-            await self._publish_rfid_status(self.controller.rfid_UHF, portno)
-
     async def _handle_request_message(self, raw_payload, properties):
         correlation = self._get_correlation(properties)
         if correlation is None:
             self.logger.warning("No reply requested")
+            return
+
+        if self.uiform is None:
+            self.logger.info("mqtt : Request ignored : uiform is not available")
             return
 
         payload = json.loads(raw_payload)
@@ -522,18 +438,10 @@ class MQTTSvc(Thread):
             return
 
         port_no = payload["port_no"]
-        if port_no not in self.controller.loadport:
-            self.logger.warning(f"mqtt : Request port_no {port_no} is not exist.")
-            return
-        if self.controller.loadport[port_no]["com"] != "e84":
-            self.logger.warning(f"mqtt : Request port_no {port_no} is not a E84 controller.")
-            return
-
-        controller_id = self.controller.loadport[port_no]["id"]
         try:
             await asyncio.wait_for(
                 self._run_in_cmd_executor(
-                    self.controller.e84[controller_id].api_request,
+                    self.uiform.e84[port_no].api_request,
                     payload["cmd"],
                     payload["data"],
                     correlation,
@@ -544,60 +452,6 @@ class MQTTSvc(Thread):
             self.logger.error(
                 f"mqtt : timeout : api_request : port_no={port_no}, cmd={payload['cmd']}"
             )
-
-    async def _handle_broker_log(self, raw_payload):
-        payload = raw_payload.decode("utf-8")
-
-        if "New client connected from" in payload:
-            pattern = r"as\s+(?P<client_id>.*?)\s+"
-            match = re.search(pattern, payload)
-
-            if not match:
-                self.logger.info("connected No match found.")
-                return
-
-            client_id = match.group("client_id")
-            self.logger.info(f"New client connected from: [{client_id}]")
-            if not client_id.startswith("RPA_"):
-                return
-
-            for portno, loadport in self.controller.loadport.items():
-                if loadport["com"].upper() != "E84":
-                    continue
-
-                now = time.monotonic()
-                if now - self._last_broker_poll_time.get(portno, 0.0) < BROKER_LOG_POLL_DEBOUNCE_SECONDS:
-                    continue
-                self._last_broker_poll_time[portno] = now
-
-                controller_id = loadport["id"]
-                port_id = getattr(settings, f"LOAD_PORT_{portno}_ID", False)
-                self.logger.info(
-                    f"mqtt : broker reconnect sync status for port_no={portno}, "
-                    f"controller_id={controller_id}, port_id={port_id}"
-                )
-                await self._run_e84_cmd(controller_id, "status")
-            return
-
-        if "disconnected" in payload:
-            pattern = r"Client\s+(?P<client_id>.*?)\s+"
-            match = re.search(pattern, payload)
-            if match:
-                self.logger.info(f"Client disconnected from: [{match.group('client_id')}]")
-            else:
-                self.logger.info("disconnected No match found.")
-            return
-
-        if "closed its connection" in payload:
-            pattern = r"Client\s+(?P<client_id>.*?)\s+"
-            match = re.search(pattern, payload)
-            if match:
-                self.logger.info(f"Client closed its connection from: [{match.group('client_id')}]")
-            else:
-                self.logger.info("closed its connection No match found.")
-            return
-
-        self.logger.debug(f"mqtt : broker log unparsed : {payload}")
 
     async def on_message(self, msg):
         topic = str(msg.topic)
@@ -615,8 +469,6 @@ class MQTTSvc(Thread):
                 await self._handle_response_message(topic, qos, raw_payload)
             elif topic.endswith("Request"):
                 await self._handle_request_message(raw_payload, properties)
-            elif topic.startswith("$SYS/broker/log/N"):
-                await self._handle_broker_log(raw_payload)
         except Exception as err:
             self.logger.error(f"mqtt : on_message : {str(err)}")
 
