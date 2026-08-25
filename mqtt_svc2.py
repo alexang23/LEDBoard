@@ -404,6 +404,50 @@ class MQTTSvc(Thread):
         payload = json.loads(raw_payload)
         self._route_to_device(payload)
 
+    async def _handle_ipc_message(self, topic, qos, raw_payload, retain):
+        self.logger.info(f"mqtt : on_message topic={topic}, qos={qos}, retain={retain}, data={raw_payload}")
+        if retain:
+            return
+        payload = json.loads(raw_payload)
+
+        if 'type' in payload:
+            if payload['type'] in [1, 3, 5]:
+                self.logger.info(f"######## exclude ########")
+                return
+
+        if payload['type'] == 2 or payload['type'] == 4: # Place & Go message
+            pass
+        elif payload['type'] == 3: # Equipment message
+            pass
+        else:
+            port_no = payload['port_no']
+
+            if self.eqp_state[port_no] != payload['eqp_state']:
+                self.eqp_state[port_no] = payload['eqp_state']
+                self.logger.info(f">>>>>>>> mqtt : port_no={port_no}, eqp_state changed to {payload['eqp_state']} <<<<<<<<")
+                copy_payload = payload.copy()
+                copy_payload['type'] = 3
+                self._route_to_device(copy_payload)
+
+            if payload['type'] == 0 and payload['stream'] == 6 and payload['function'] == 11 and payload['code_id'] == 0 and payload['sub_id'] == 0:
+                self.logger.info(f"######## exclude ########")
+                return
+            if payload['type'] == 0 and payload['stream'] == -1 and payload['function'] == -1 and payload['code_id'] == 0:
+                self.logger.info(f"######## exclude ########")
+                return
+            if payload['code_id'] == 0x0071:
+                if payload['mode'] == 2:
+                    self.logger.info(f"######## exclude ########")
+                    return
+                if payload['sub_id'] not in [0, 1, 2, 3, 4, 5, 6, 7, 20, 21, 22, 23, 24, 25]:
+                    self.logger.info(f"######## exclude ########")
+                    return
+            elif payload['code_id'] not in [0, 0x8003, 0x0080, 0x001c]:
+                self.logger.info(f"######## exclude ########")
+                return
+
+        self._route_to_device(payload)
+
     async def _handle_ledboard_message(self, topic, qos, raw_payload):
         self.logger.info(f"mqtt : on_message topic={topic}, qos={qos}, data={raw_payload}")
         if not settings.LEDBOARD_ENABLE:
@@ -565,8 +609,8 @@ class MQTTSvc(Thread):
         try:
             if topic.endswith("Process"):
                 await self._handle_process_message(topic, qos, raw_payload, retain)
-            elif topic.endswith("LEDBoard"):
-                await self._handle_ledboard_message(topic, qos, raw_payload)
+            elif topic.endswith(str(self.topic)):
+                await self._handle_ipc_message(topic, qos, raw_payload, retain)
             elif topic.endswith("response"):
                 await self._handle_response_message(topic, qos, raw_payload)
             elif topic.endswith("Request"):
