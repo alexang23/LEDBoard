@@ -147,7 +147,7 @@ class Settings(BaseSettings):
 	MQTT_HEARTBEAT_TIME:int = 20
 
 	MQTT_KEEPALIVE:int = 60
-	MQTT_QOS:int = 2
+	MQTT_QOS:int = 0
 	MQTT_CLEAN_SESSION:int = 0
 	# MQTT_CLEAN_START=0
 	MQTT_CLEAN_START_FIRST_ONLY:int = 3
