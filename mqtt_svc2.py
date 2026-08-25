@@ -311,6 +311,33 @@ class MQTTSvc(Thread):
         props.CorrelationData = correlation.CorrelationData
         return props
 
+    def publish(self, data):
+        loop = self._loop
+        if not self.connect or self.mqttc is None or loop is None or not loop.is_running():
+            return False
+        try:
+            scheduled_data = copy.deepcopy(data)
+            loop.call_soon_threadsafe(asyncio.create_task, self._do_publish(scheduled_data))
+        except (RuntimeError, TypeError):
+            return False
+        return True
+
+    async def _do_publish(self, data):
+        try:
+            payload = json.dumps(data)
+            if "Server" in data:
+                if settings.MQTT_DEBUG_ENABLE:
+                    print(f"[Server]:{payload}")
+                self.logger_mqtt.info(f"[Server]:{payload}")
+                await self._publish(self.topic_server, payload)
+            else:
+                if settings.MQTT_DEBUG_ENABLE:
+                    print(f"[IPC]:{payload}")
+                self.logger_mqtt.info(f"[IPC]:{payload}")
+                await self._publish(f"{self.topic}/LEDBoard", payload)
+        except Exception as err:
+            self.logger.error('Mqtt Proxy : {}'.format(str(err)))
+
     async def _publish(self, topic, payload, qos=None, properties=None, retain=False, wait_timeout=5):
         if not self.connect or self.mqttc is None:
             return False
