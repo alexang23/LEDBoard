@@ -200,7 +200,6 @@ class MQTTSvc(Thread):
             "identifier": self.client_id,
             "protocol": ProtocolVersion(settings.MQTT_PROTOCOL),
             "transport": settings.MQTT_TRANSPORT,
-            "timeout": settings.MQTT_TIMEOUT,
             "keepalive": settings.MQTT_KEEPALIVE,
             "clean_start": settings.MQTT_CLEAN_START_FIRST_ONLY,
             "will": Will(
@@ -743,7 +742,7 @@ class MQTTSvc(Thread):
                     else:
                         self.logger.warning(f"mqtt : connect_MQTT_service : attempt={attempt} : {err}")
                 except Exception as err:
-                    self.logger.error(f"mqtt : run : {str(err)}", exc_info=True)
+                    self.logger.error(f"mqtt : run : {str(err)}")
                 finally:
                     self._receive_event = None
 
