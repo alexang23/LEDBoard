@@ -117,28 +117,23 @@ class MQTTSvc(Thread):
         # print("########## " + msg.topic + " " + str(msg.qos) + " " + str(msg.payload))
         try:
             if msg.topic.endswith("Process"):
-                self.logger.info(f"mqtt : on_message topic={msg.topic}, qos={str(msg.qos)}, data={str(msg.payload)}")
-                if settings.CLAMP_ENABLE:
-                    payload = json.loads(msg.payload)
-
-                    portno = payload['port_no']
-                    if portno not in self.controller.loadport:
-                        self.logger.warning('mqtt : {}/Process port_no {} is not exist.'.format(settings.MQTT_TOPIC_SERVER, portno))
-                        return
-                
-                    if self.controller.loadport[portno]['com'] == 'e84':
-                        id = self.controller.loadport[portno]['id']
-                
-                        if payload['process_state'] == settings.CLAMP_ON:
-                            # payload['dual_port']
-                            self.controller.e84[id].run_cmd('clamp_on')
-                            self.logger.info(f"mqtt : port_no={portno}, process_state={payload['process_state']}, CLAMP_ON")
-                        elif payload['process_state'] == settings.CLAMP_OFF:
-                            self.controller.e84[id].run_cmd('clamp_off')
-                            self.logger.info(f"mqtt : port_no={portno}, process_state={payload['process_state']}, CLAMP_OFF")
+                self.logger.info(f"mqtt : on_message topic={msg.topic}, qos={msg.qos}, state={msg.state}, retain={msg.retain}, data={str(msg.payload)}")
+                if msg.retain:
+                    return
+                payload = json.loads(msg.payload)
+    
+                port_no = payload['port_no']
+                copy_payload = payload.copy()
+                copy_payload['type'] = 3
+                if settings.LEDBOARD2_ENABLE:
+                    if copy_payload['port_no'] < 3:
+                        self.controller.device.on_notify(copy_payload)
                     else:
-                        self.logger.warning('mqtt : {}/Process port_no {} is not a E84 controller.'.format(settings.MQTT_TOPIC_SERVER, portno))
-            
+                        self.controller.device2.on_notify(copy_payload)
+                else:
+                    self.controller.device.on_notify(copy_payload)
+                self.logger.info(f"mqtt : port_no={port_no}, process_state={payload['process_state']}")
+        
             elif msg.topic.endswith("IPC"):
                 # self.logger.info(f"mqtt : on_message topic={msg.topic}, qos={msg.qos}, state={msg.state}, retain={msg.retain}, data={str(msg.payload.decode())}")
                 self.logger.info(f"mqtt : on_message topic={msg.topic}, qos={msg.qos}, state={msg.state}, retain={msg.retain}, data={str(msg.payload)}")
