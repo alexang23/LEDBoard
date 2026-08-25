@@ -19,6 +19,7 @@ dependencies = [
     "pyserial",
     "pywin32",
     "fastapi<0.100.0",
+    "aiomqtt>=2.5.1",
 ]
 
 [project.scripts]
