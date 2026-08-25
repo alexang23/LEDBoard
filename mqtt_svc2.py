@@ -638,34 +638,14 @@ class MQTTSvc(Thread):
                 )
                 return await self._publish(reply_to, payload, qos=1, properties=props, wait_timeout=5)
 
-            if "Server" in payload_data:
-                if settings.WAFER_TYPE and ("port_no" in payload_data) and payload_data["port_no"] != settings.WAFER_TYPE:
-                    return True
-
-                payload = json.dumps(payload_data)
-                if settings.MQTT_DEBUG_ENABLE:
-                    self.logger.info(f"[Server]:{payload}")
-                self.logger_mqtt.info(f"[Server]:{payload}")
-
-                published_ipc = await self._publish(self.topic, payload)
-                if not published_ipc:
-                    return False
-                # On reconnect this notification is reprocessed from the queue, so
-                # the first publish above may be delivered twice (at-least-once).
-
-                if not settings.SERVER_UPLOAD_ALL and payload_data.get("code_id") not in [113, 32770, 32771, 28]:
-                    return True
-
-                return await self._publish(self.topic_server, payload)
-
-            if settings.WAFER_TYPE and ("port_no" in payload_data) and payload_data["port_no"] != settings.WAFER_TYPE:
-                return True
-
             payload = json.dumps(payload_data)
-            if settings.MQTT_DEBUG_ENABLE:
-                self.logger.info(f"[IPC]:{payload}")
-            self.logger_mqtt.info(f"[IPC]:{payload}")
-            return await self._publish(self.topic, payload)
+            if "device_id" in payload_data:
+                if not await self._publish(self.topic_server, payload):
+                    return False
+
+            pattern = r'"device_id":\s*".+?",?\s*'
+            no_deviceid_payload = re.sub(pattern, '', payload)
+            return await self._publish(self.topic, no_deviceid_payload)
         except Exception as err:
             self.logger.error(f"mqtt : data_process : {str(err)}")
             return False
