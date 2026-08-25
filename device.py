@@ -484,6 +484,8 @@ class LEDButton(threading.Thread):
         self.btntime = {1:time.time(), 2:time.time(), 3:time.time(), 4:time.time(), 5:time.time(), 6:time.time(), 7:time.time(), 8:time.time()}
         self.func = {'Port1':2, 'Port2':6, 'E841':18, 'E842':22, 'RFID1':26, 'RFID2':30, 'Switch1':10, 'Switch2':14}
         self.color = {'Red':[49, 48, 48], 'Green':[48, 49, 48], 'Blue':[48, 48, 49], 'None':[48, 48, 48]}
+        self._blink = {}
+        self._blink_lock = threading.Lock()
         '''
         try:
             self.device = serial.Serial(self.devPath, 9600, 8, 'N', 1, timeout=0.25)
@@ -691,22 +693,46 @@ class LEDButton(threading.Thread):
         # print(f"########## on_notify : {data}")
         self.cmd_queue.append(data)
 
-    def set_led(self, fname, port_no, color, data=None):
-        # if not data :
-        #     data = self.status
-        #     # print(f"status:{bytes(data)}, {fname}{port_no}, {color}")
-        # data[self.func[f"{fname}{port_no}"]] = self.color[color][0]
-        # data[self.func[f"{fname}{port_no}"]+1] = self.color[color][1]
-        # data[self.func[f"{fname}{port_no}"]+2] = self.color[color][2]
-        # # print(f"status:{bytes(data)}, {fname}{port_no}, {color}")
-
+    def set_led(self, fname, port_no, color, data=None, from_blinker=False):
         try:
+            if fname == 'Port' and not from_blinker:
+                self.stop_blink(port_no)
             # data = {}
             # data[self.func[f"{fname}{port_no}"]] = self.color[color]
             data = ['C', self.func[f"{fname}{port_no}"], self.color[color]]
             self.device.write(data)
         except Exception as err:
             self.logger.error(f"board {self.board}: {str(err)}")
+
+    def start_blink(self, port_no_led):
+        try:
+            with self._blink_lock:
+                self._blink[port_no_led] = True
+        except Exception as err:
+            self.logger.error(f"board {self.board}: {str(err)}")
+
+    def stop_blink(self, port_no_led):
+        try:
+            with self._blink_lock:
+                self._blink.pop(port_no_led, None)
+        except Exception as err:
+            self.logger.error(f"board {self.board}: {str(err)}")
+
+    def _blink_loop(self):
+        while not self.stop:
+            time.sleep(0.5)
+            try:
+                with self._blink_lock:
+                    ports = list(self._blink.items())
+                for port_no_led, on in ports:
+                    if port_no_led not in self._blink:
+                        continue
+                    self.set_led('Port', port_no_led, 'Green' if on else 'None', from_blinker=True)
+                    with self._blink_lock:
+                        if port_no_led in self._blink:
+                            self._blink[port_no_led] = not on
+            except Exception as err:
+                self.logger.error(f"board {self.board}: blink error {str(err)}")
 
     def data_process(self, payload):
         try:
@@ -795,9 +821,14 @@ class LEDButton(threading.Thread):
                 return
 
             elif payload['type'] == 3: # Equipment message
-                if payload['port_state'] == 128 or payload['code_id'] == 128 or len(payload['alarm_text']) > 0 or payload['eqp_state'] == 1: # Alarm
+                if payload['process_state'] == 1:
+                    self.set_led('Port', port_no_led, 'Blue')
+                elif payload['process_state'] == 2:
+                    self.start_blink(port_no_led)
+                elif payload['port_state'] == 128 or payload['code_id'] == 128 or len(payload['alarm_text']) > 0 or payload['eqp_state'] == 1: # Alarm
                     self.set_led('Port', port_no_led, 'Red')
                     print('###### 0-3-128-0')
+
                 else:
                     if payload['mode'] == 1:
                         self.set_led('Port', port_no_led, 'Green')
@@ -980,6 +1011,9 @@ class LEDButton(threading.Thread):
             self.logger.error(str(err))
 
         self.initial_status()
+
+        blink_thread = threading.Thread(target=self._blink_loop, daemon=True)
+        blink_thread.start()
 
         while not self.stop:
             try:
