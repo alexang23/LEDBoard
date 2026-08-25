@@ -24,14 +24,20 @@ MAX_RECONNECT_DELAY = 30
 MAX_OUTBOUND_RETRIES = 5
 MAX_CMD_WAIT = 30
 # Liveness gap for the MQTTSvc watchdog name. Must cover the worst legitimate
-# quiet period: backoff (<=MAX_RECONNECT_DELAY) + a connect attempt
-# (<= settings.MQTT_TIMEOUT) + margin, so a normal broker outage is not
-# reported as a stalled thread.
+# quiet period: backoff (<=MAX_RECONNECT_DELAY) + a connect attempt + margin,
+# so a normal broker outage is not reported as a stalled thread.
 MQTT_WATCHDOG_MAX_GAP = max(90, MAX_RECONNECT_DELAY + int(getattr(settings, "MQTT_TIMEOUT", 10)) + 60)
 # Dedicated, size-bounded executor for the blocking E84/RFID calls wrapped by
 # asyncio.wait_for. A stuck thread cannot be killed, but bounding it here keeps
 # one wedged call from occupying a slot in the shared default executor.
 CMD_EXECUTOR_MAX_WORKERS = 4
+
+_background_tasks = set()
+
+
+def _retain_task(task):
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 @dataclass
@@ -285,13 +291,12 @@ class MQTTSvc(Thread):
             return None
 
         response_topic = getattr(properties, "ResponseTopic", None)
-        correlation_data = getattr(properties, "CorrelationData", None)
-        if response_topic is None or correlation_data is None:
+        if response_topic is None:
             return None
 
         return MQTTCorrelation(
             ResponseTopic=str(response_topic),
-            CorrelationData=correlation_data,
+            CorrelationData=getattr(properties, "CorrelationData", None),
         )
 
     def _build_publish_properties(self, correlation):
@@ -308,8 +313,8 @@ class MQTTSvc(Thread):
             return False
         try:
             scheduled_data = copy.deepcopy(data)
-            loop.call_soon_threadsafe(asyncio.create_task, self._do_publish(scheduled_data))
-        except (RuntimeError, TypeError):
+            loop.call_soon_threadsafe(lambda: _retain_task(asyncio.create_task(self._do_publish(scheduled_data))))
+        except Exception:
             return False
         return True
 
@@ -758,6 +763,7 @@ class MQTTSvc(Thread):
             await asyncio.gather(*periodic_tasks, return_exceptions=True)
 
     def run(self):
+        gyro_watchdog.start_watchdog(self.logger)
         if hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
             self._loop = asyncio.WindowsSelectorEventLoopPolicy().new_event_loop()
         else:
