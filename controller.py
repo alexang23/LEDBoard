@@ -7,7 +7,7 @@ import re
 import traceback
 from config import Settings, settings
 
-from mqtt_svc import MQTTSvc
+from mqtt_svc2 import MQTTSvc
 from device import LEDButton
 import logging
 from logging.handlers import TimedRotatingFileHandler
