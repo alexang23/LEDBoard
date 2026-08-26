@@ -65,7 +65,7 @@ class Settings(BaseSettings):
 	LOG_LEVEL:int = 20
 	# SW_VERSION:str = 'v1.4.0804.0'
 	# SW_VERSION:str = 'v1.5.0930.0'
-	SW_VERSION:str = 'v1.7.260826.0'
+	SW_VERSION:str = 'v1.8.260826.0'
 
 	LEDBOARD_DEBUG_ENABLE:bool = False
 	LEDBOARD_ENABLE:bool = True
