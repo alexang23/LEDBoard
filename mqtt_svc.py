@@ -291,7 +291,7 @@ class MQTTSvc(Thread):
         self.ip = settings.MQTT_IP
         self.port = settings.MQTT_PORT
         self.device_id = settings.DEVICE_ID
-        self.client_id = settings.MQTT_CLIENT_ID
+        self.client_id = f"{settings.DEVICE_ID}_LEDBoard"
         self.topic = settings.MQTT_TOPIC
         self.topic_server = settings.MQTT_TOPIC_SERVER
         self.heartbeat_enable = settings.MQTT_HEARTBEAT_ENABLE
