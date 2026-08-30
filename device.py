@@ -11,6 +11,7 @@ from config import settings
 import json
 from datetime import datetime
 from global_log import LoggerFile
+import gyro_watchdog
 import queue
 import re
 
@@ -212,6 +213,7 @@ class SerialPortHandler:
     def stop(self):
         self.running = False
         self.reader_thread.join()
+        gyro_watchdog.unregister(f"SerialPortHandler-board{self.board}")
         # self.writer_thread.join()
         self.ser.close()
         self.controller.send_event(True, 0, 1, 'close', self.board)
@@ -229,6 +231,7 @@ class SerialPortHandler:
         income_count = 0
 
         while self.running:
+            gyro_watchdog.touch(f"SerialPortHandler-board{self.board}", max_gap=10)
             try:
                 dtime = time.time() - self.last_update
                 # if time.time() - self.last_update > 10:
@@ -939,6 +942,9 @@ class LEDButton(threading.Thread):
         blink_thread.start()
 
         while not self.stop:
+            # max_gap covers the None-device recovery path (sleep 5 + sleep 10)
+            # and the reconnect branch (stop + sleep 5 + construct + sleep 2 + sleep 3).
+            gyro_watchdog.touch(f"LEDButton-board{self.board}", max_gap=30)
             try:
                 if not self.device:
                     self.send_event(True, 128, 2, 'reconnect device', self.board)
@@ -1347,6 +1353,8 @@ class LEDButton(threading.Thread):
             # finally:
             #     self.device.close()
             #     print("Serial port closed.")
+
+        gyro_watchdog.unregister(f"LEDButton-board{self.board}")
 
 
 if __name__ == "__main__":
