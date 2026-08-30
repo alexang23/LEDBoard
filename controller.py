@@ -36,11 +36,18 @@ class Controller(Thread):
 
         while not self.stop:
             try:
-                self.mqtt_svc = MQTTSvc(self, self.tsc_logger)
-                self.mqtt_svc.start()
-                self.device = LEDButton(devPath='COM'+str(settings.LEDBOARD_COM), board=1, mqtt_svc=self.mqtt_svc, log=self.tsc_logger)
+                # Construct devices before starting MQTTSvc: incoming messages
+                # are routed via controller.device/device2 (_route_to_device),
+                # which has no None guard, so the MQTT thread must not run
+                # while those attributes are still None.
+                self.device = LEDButton(devPath='COM'+str(settings.LEDBOARD_COM), board=1, mqtt_svc=None, log=self.tsc_logger)
                 if settings.LEDBOARD2_ENABLE:
-                    self.device2 = LEDButton(devPath='COM'+str(settings.LEDBOARD2_COM), board=2, mqtt_svc=self.mqtt_svc, log=self.tsc_logger)
+                    self.device2 = LEDButton(devPath='COM'+str(settings.LEDBOARD2_COM), board=2, mqtt_svc=None, log=self.tsc_logger)
+                self.mqtt_svc = MQTTSvc(self, self.tsc_logger)
+                self.device.mqtt_svc = self.mqtt_svc
+                if settings.LEDBOARD2_ENABLE:
+                    self.device2.mqtt_svc = self.mqtt_svc
+                self.mqtt_svc.start()
                 self.device.daemon = True
                 self.device.start()
                 self.tsc_logger.info('Controller Starting')
