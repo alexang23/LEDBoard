@@ -20,6 +20,8 @@ import re
 #e84Path = '/dev/ttyS5'
 e84Path = '/dev/ttyUSB0'
 
+READER_JOIN_TIMEOUT = 2.0  # seconds; bounded so a wedged reader can't hang stop()
+
 def led_frame(bit_index: int | None = None, start: str = 'A') -> tuple[int, ...]:
     """
     Build a 34-byte LED board frame: start char + 32 ASCII '0'/'1' payload + 'B'.
@@ -212,10 +214,27 @@ class SerialPortHandler:
 
     def stop(self):
         self.running = False
-        self.reader_thread.join()
-        gyro_watchdog.unregister(f"SerialPortHandler-board{self.board}")
+        # Best effort: unblock a reader wedged in a native read (e.g. USB-serial
+        # surprise removal) so the bounded join below can complete.
+        try:
+            self.ser.cancel_read()
+        except Exception:
+            pass
+        if self.reader_thread is not None:
+            if self.reader_thread.is_alive():
+                self.reader_thread.join(timeout=READER_JOIN_TIMEOUT)
+            if self.reader_thread.is_alive():
+                # Keep the watchdog name registered: the wedged thread has
+                # stopped touching and the monitor will flag it with a dump.
+                self.logger.error(f"board {self.board}: reader thread did not exit within {READER_JOIN_TIMEOUT}s during stop()")
+            else:
+                gyro_watchdog.unregister(f"SerialPortHandler-board{self.board}")
         # self.writer_thread.join()
-        self.ser.close()
+        try:
+            if self.ser.isOpen():
+                self.ser.close()
+        except Exception as exc:
+            self.logger.error(f"board {self.board}: serial port close error : {exc}")
         self.controller.send_event(True, 0, 1, 'close', self.board)
 
     def _read_loop(self):
