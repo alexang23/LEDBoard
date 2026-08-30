@@ -937,6 +937,23 @@ class LEDButton(threading.Thread):
         except Exception as err:
             self.logger.error(str(err))
 
+    def stop_and_wait(self, timeout=None):
+        # Mirrors MQTTSvc.stop_and_wait: flag the loop, wait for it to exit,
+        # then close the underlying serial handler (reader thread + port).
+        if threading.current_thread() is not self:
+            self.stop = True
+            if self.is_alive():
+                self.join(timeout=timeout)
+                if timeout is not None and self.is_alive():
+                    self.logger.warning(f"board {self.board}: thread did not exit within {timeout}s during stop_and_wait")
+        else:
+            self.stop = True
+        if self.device is not None:
+            try:
+                self.device.stop()
+            except Exception as err:
+                self.logger.error(f"board {self.board}: serial stop error : {err}")
+
     def run(self):
 
         try:
@@ -966,6 +983,8 @@ class LEDButton(threading.Thread):
             gyro_watchdog.touch(f"LEDButton-board{self.board}", max_gap=30)
             try:
                 if not self.device:
+                    if self.stop:
+                        break
                     self.send_event(True, 128, 2, 'reconnect device', self.board)
                     self.logger.warning(f"board {self.board}, device is None. reconnect device")
                     time.sleep(5)
@@ -993,6 +1012,8 @@ class LEDButton(threading.Thread):
                         self.data_process(data)
 
                 if self.device.reconnect:
+                    if self.stop:
+                        break
                     self.send_event(True, 128, 2, 'reconnect device', self.board)
                     self.logger.warning(f"board {self.board} reconnect device")
                     self.device.stop()
