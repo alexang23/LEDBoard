@@ -46,6 +46,119 @@ B8Red =   (65, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 4
 B8Green = (65, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 49, 48, 66)
 B8Blue =  (65, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 49, 66)
 
+def led2text(data_orig: bytes, encoding: str = 'utf-8', logger=None) -> str:
+    """
+    Validates a 32-character binary string (decoded from bytes), and if valid,
+    translates it into a detailed text description for LED states grouped by ports.
+
+    Args:
+        data: A bytes object containing the 32-character binary data.
+        encoding: The character encoding to use when decoding the bytes (default: 'utf-8').
+        logger: Optional logger used for invalid-content diagnostics.
+
+    Returns:
+        A string representing the LED states grouped by ports, or "invalid content"
+        if the input data is not valid.
+    """
+    # print("--- LED Board Function Call (Internal Validation & Port Description) ---")
+
+    # Decode the bytes data to a string first
+    try:
+        data_str = data_orig.decode(encoding)
+        # print(f"Data received (bytes): {data_orig}")
+        # print(f"Data decoded (str): {data_str}")
+    except UnicodeDecodeError:
+        if logger:
+            logger.error(f"Error decoding bytes with {encoding} encoding.")
+        return "invalid content"
+
+    # 1. Validate if the received data (32 characters) contains only '0' or '1' and is exactly 32 chars long
+    # We validate the decoded string here
+    data = data_str[1:33]
+    # print(f"Data decoded (str): {data}")
+    if not re.fullmatch(r'^[01]{32}$', data):
+        if logger:
+            logger.warning(f"{data} Data is invalid (contains non-0/1 characters or incorrect length).")
+        result_status = "invalid content"
+        return result_status
+
+    # print("  Data is valid (exactly 32 characters, only 0s or 1s).")
+    result_status = "correct" # Store the 'correct' status
+
+    # 2. Proceed to generate the text description for ports
+    all_led_descriptions = {} # Use a dictionary to store individual LED descriptions by their number (1-8)
+
+    # Loop through each LED group (4 characters per LED) to get individual descriptions
+    for i in range(8): # 8 LEDs (0 to 7)
+        led_number = i + 1
+        start_index = i * 4
+        # Slice from the decoded string
+        led_chars = data[start_index : start_index + 4]
+
+        button = led_chars[0]
+        red = led_chars[1]
+        green = led_chars[2]
+        blue = led_chars[3]
+
+        current_led_description = "" # Start with an empty string for the light/button part
+
+        # Button state
+        if button == '1':
+            current_led_description += "press"
+
+        # Light state
+        light_state = ""
+        if red == '0' and green == '0' and blue == '0':
+            light_state = "no" # No light
+        elif red == '1':
+            light_state = "red"
+        elif green == '1':
+            light_state = "green"
+        elif blue == '1':
+            light_state = "blue"
+        # Note: This logic prioritizes red > green > blue if multiple are '1'.
+        # Adjust if simultaneous colors like yellow (red+green) are expected.
+
+        # Combine button and light state
+        if current_led_description != "" and light_state != "":
+            current_led_description += "_" + light_state
+        elif light_state != "":
+            current_led_description = light_state
+
+        # Handle the case where there's no press and no light
+        if button == '0' and red == '0' and green == '0' and blue == '0':
+            current_led_description = "no"
+
+        all_led_descriptions[led_number] = current_led_description # Store by LED number
+
+    # Now assemble the Port descriptions based on the specified sequence
+    # port1_led_numbers = [1, 5, 7, 3] # Specific order for Port1
+    # port2_led_numbers = [2, 6, 8, 4] # Specific order for Port2
+    port1_led_numbers = [3, 7, 5, 1] # Specific order for Port1
+    port2_led_numbers = [4, 8, 6, 2] # Specific order for Port2
+
+    port1_descriptions = []
+    for led_num in port1_led_numbers:
+        port1_descriptions.append(all_led_descriptions[led_num])
+    # port1_string = "Port1: " + ", ".join(port1_descriptions)
+    port1_string = "1: " + ", ".join(port1_descriptions)
+
+    port2_descriptions = []
+    for led_num in port2_led_numbers:
+        port2_descriptions.append(all_led_descriptions[led_num])
+    # port2_string = "Port2: " + ", ".join(port2_descriptions)
+    port2_string = "2: " + ", ".join(port2_descriptions)
+
+    final_description = f"{port1_string}   {port2_string}"
+    # print(f"  Text Description: {final_description}")
+
+    # In a real scenario, you would send the original 'data' (bytes) to your LED board here
+    # AND potentially use the 'final_description' for logging or display.
+    # For example: send_to_led_board(raw_bytes=data, description=final_description)
+
+    # print("---------------------------------------------------")
+    return final_description # Return the generated text description
+
 class SerialPortHandler:
     def __init__(self, port='COM14', board=1, controller=None, baudrate=9600, timeout=0.5, max_queue_size=500, logger=None, logger_led=None):
         self.port = port
@@ -348,114 +461,7 @@ class SerialPortHandler:
         raise TimeoutError(f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]} Timeout waiting for response to: {list(cmd)}')
     
     def led2text(self, data_orig: bytes, encoding: str = 'utf-8') -> str:
-        """
-        Validates a 32-character binary string (decoded from bytes), and if valid,
-        translates it into a detailed text description for LED states grouped by ports.
-
-        Args:
-            data: A bytes object containing the 32-character binary data.
-            encoding: The character encoding to use when decoding the bytes (default: 'utf-8').
-
-        Returns:
-            A string representing the LED states grouped by ports, or "invalid content"
-            if the input data is not valid.
-        """
-        # print("--- LED Board Function Call (Internal Validation & Port Description) ---")
-
-        # Decode the bytes data to a string first
-        try:
-            data_str = data_orig.decode(encoding)
-            # print(f"Data received (bytes): {data_orig}")
-            # print(f"Data decoded (str): {data_str}")
-        except UnicodeDecodeError:
-            self.logger.error(f"Error decoding bytes with {encoding} encoding.")
-            return "invalid content"
-
-        # 1. Validate if the received data (32 characters) contains only '0' or '1' and is exactly 32 chars long
-        # We validate the decoded string here
-        data = data_str[1:33]
-        # print(f"Data decoded (str): {data}")
-        if not re.fullmatch(r'^[01]{32}$', data):
-            self.logger.warning("  Data is invalid (contains non-0/1 characters or incorrect length).")
-            result_status = "invalid content"
-            return result_status
-
-        # print("  Data is valid (exactly 32 characters, only 0s or 1s).")
-        result_status = "correct" # Store the 'correct' status
-
-        # 2. Proceed to generate the text description for ports
-        all_led_descriptions = {} # Use a dictionary to store individual LED descriptions by their number (1-8)
-
-        # Loop through each LED group (4 characters per LED) to get individual descriptions
-        for i in range(8): # 8 LEDs (0 to 7)
-            led_number = i + 1
-            start_index = i * 4
-            # Slice from the decoded string
-            led_chars = data[start_index : start_index + 4]
-
-            button = led_chars[0]
-            red = led_chars[1]
-            green = led_chars[2]
-            blue = led_chars[3]
-
-            current_led_description = "" # Start with an empty string for the light/button part
-
-            # Button state
-            if button == '1':
-                current_led_description += "press"
-
-            # Light state
-            light_state = ""
-            if red == '0' and green == '0' and blue == '0':
-                light_state = "no" # No light
-            elif red == '1':
-                light_state = "red"
-            elif green == '1':
-                light_state = "green"
-            elif blue == '1':
-                light_state = "blue"
-            # Note: This logic prioritizes red > green > blue if multiple are '1'.
-            # Adjust if simultaneous colors like yellow (red+green) are expected.
-
-            # Combine button and light state
-            if current_led_description != "" and light_state != "":
-                current_led_description += "_" + light_state
-            elif light_state != "":
-                current_led_description = light_state
-            
-            # Handle the case where there's no press and no light
-            if button == '0' and red == '0' and green == '0' and blue == '0':
-                current_led_description = "no"
-
-            all_led_descriptions[led_number] = current_led_description # Store by LED number
-
-        # Now assemble the Port descriptions based on the specified sequence
-        # port1_led_numbers = [1, 5, 7, 3] # Specific order for Port1
-        # port2_led_numbers = [2, 6, 8, 4] # Specific order for Port2
-        port1_led_numbers = [3, 7, 5, 1] # Specific order for Port1
-        port2_led_numbers = [4, 8, 6, 2] # Specific order for Port2
-
-        port1_descriptions = []
-        for led_num in port1_led_numbers:
-            port1_descriptions.append(all_led_descriptions[led_num])
-        # port1_string = "Port1: " + ", ".join(port1_descriptions)
-        port1_string = "1: " + ", ".join(port1_descriptions)
-
-        port2_descriptions = []
-        for led_num in port2_led_numbers:
-            port2_descriptions.append(all_led_descriptions[led_num])
-        # port2_string = "Port2: " + ", ".join(port2_descriptions)
-        port2_string = "2: " + ", ".join(port2_descriptions)
-
-        final_description = f"{port1_string}   {port2_string}"
-        # print(f"  Text Description: {final_description}")
-
-        # In a real scenario, you would send the original 'data' (bytes) to your LED board here
-        # AND potentially use the 'final_description' for logging or display.
-        # For example: send_to_led_board(raw_bytes=data, description=final_description)
-
-        # print("---------------------------------------------------")
-        return final_description # Return the generated text description
+        return led2text(data_orig, encoding, self.logger)
     
 class LEDButton(threading.Thread):
     def __init__(self, devPath, board=1, mqtt_svc=None, log=None, name=''):
@@ -493,114 +499,7 @@ class LEDButton(threading.Thread):
             print('{} not open'.format(self.devPath))'''
         
     def led2text(self, data_orig: bytes, encoding: str = 'utf-8') -> str:
-        """
-        Validates a 32-character binary string (decoded from bytes), and if valid,
-        translates it into a detailed text description for LED states grouped by ports.
-
-        Args:
-            data: A bytes object containing the 32-character binary data.
-            encoding: The character encoding to use when decoding the bytes (default: 'utf-8').
-
-        Returns:
-            A string representing the LED states grouped by ports, or "invalid content"
-            if the input data is not valid.
-        """
-        # print("--- LED Board Function Call (Internal Validation & Port Description) ---")
-
-        # Decode the bytes data to a string first
-        try:
-            data_str = data_orig.decode(encoding)
-            # print(f"Data received (bytes): {data_orig}")
-            # print(f"Data decoded (str): {data_str}")
-        except UnicodeDecodeError:
-            self.logger.error(f"Error decoding bytes with {encoding} encoding.")
-            return "invalid content"
-
-        # 1. Validate if the received data (32 characters) contains only '0' or '1' and is exactly 32 chars long
-        # We validate the decoded string here
-        data = data_str[1:33]
-        # print(f"Data decoded (str): {data}")
-        if not re.fullmatch(r'^[01]{32}$', data):
-            self.logger.error(f"{data} Data is invalid (contains non-0/1 characters or incorrect length).")
-            result_status = "invalid content"
-            return result_status
-
-        # print("  Data is valid (exactly 32 characters, only 0s or 1s).")
-        result_status = "correct" # Store the 'correct' status
-
-        # 2. Proceed to generate the text description for ports
-        all_led_descriptions = {} # Use a dictionary to store individual LED descriptions by their number (1-8)
-
-        # Loop through each LED group (4 characters per LED) to get individual descriptions
-        for i in range(8): # 8 LEDs (0 to 7)
-            led_number = i + 1
-            start_index = i * 4
-            # Slice from the decoded string
-            led_chars = data[start_index : start_index + 4]
-
-            button = led_chars[0]
-            red = led_chars[1]
-            green = led_chars[2]
-            blue = led_chars[3]
-
-            current_led_description = "" # Start with an empty string for the light/button part
-
-            # Button state
-            if button == '1':
-                current_led_description += "press"
-
-            # Light state
-            light_state = ""
-            if red == '0' and green == '0' and blue == '0':
-                light_state = "no" # No light
-            elif red == '1':
-                light_state = "red"
-            elif green == '1':
-                light_state = "green"
-            elif blue == '1':
-                light_state = "blue"
-            # Note: This logic prioritizes red > green > blue if multiple are '1'.
-            # Adjust if simultaneous colors like yellow (red+green) are expected.
-
-            # Combine button and light state
-            if current_led_description != "" and light_state != "":
-                current_led_description += "_" + light_state
-            elif light_state != "":
-                current_led_description = light_state
-            
-            # Handle the case where there's no press and no light
-            if button == '0' and red == '0' and green == '0' and blue == '0':
-                current_led_description = "no"
-
-            all_led_descriptions[led_number] = current_led_description # Store by LED number
-
-        # Now assemble the Port descriptions based on the specified sequence
-        # port1_led_numbers = [1, 5, 7, 3] # Specific order for Port1
-        # port2_led_numbers = [2, 6, 8, 4] # Specific order for Port2
-        port1_led_numbers = [3, 7, 5, 1] # Specific order for Port1
-        port2_led_numbers = [4, 8, 6, 2] # Specific order for Port2
-
-        port1_descriptions = []
-        for led_num in port1_led_numbers:
-            port1_descriptions.append(all_led_descriptions[led_num])
-        # port1_string = "Port1: " + ", ".join(port1_descriptions)
-        port1_string = "1: " + ", ".join(port1_descriptions)
-
-        port2_descriptions = []
-        for led_num in port2_led_numbers:
-            port2_descriptions.append(all_led_descriptions[led_num])
-        # port2_string = "Port2: " + ", ".join(port2_descriptions)
-        port2_string = "2: " + ", ".join(port2_descriptions)
-
-        final_description = f"{port1_string}   {port2_string}"
-        # print(f"  Text Description: {final_description}")
-
-        # In a real scenario, you would send the original 'data' (bytes) to your LED board here
-        # AND potentially use the 'final_description' for logging or display.
-        # For example: send_to_led_board(raw_bytes=data, description=final_description)
-
-        # print("---------------------------------------------------")
-        return final_description # Return the generated text description
+        return led2text(data_orig, encoding, self.logger)
 
 
     def cmd(self, data):
