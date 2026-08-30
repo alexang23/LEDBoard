@@ -1017,6 +1017,16 @@ class LEDButton(threading.Thread):
 
         while not self.stop:
             try:
+                if not self.device:
+                    self.send_event(True, 128, 2, 'reconnect device', self.board)
+                    self.logger.warning(f"board {self.board}, device is None. reconnect device")
+                    time.sleep(5)
+                    self.device = SerialPortHandler(port=self.devPath, board=self.board, controller=self, logger=self.logger, logger_led=self.logger_led)
+                    self.device.start()
+                    time.sleep(3)
+                    self.initial_status()
+                    continue
+
                 # device write
                 # if self.cmd_queue:
                 #     if self.device.is_open:
@@ -1066,11 +1076,6 @@ class LEDButton(threading.Thread):
 
                 # buf = self.device.read(34) # <class 'bytes'>
 
-                if not self.device:
-                    time.sleep(5)
-                    self.logger.warning(f"board {self.board}, device is None.")
-                    continue
-                
                 buf = self.device.read(timeout=1)
 
                 if buf is None:
