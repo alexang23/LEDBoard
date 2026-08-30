@@ -323,6 +323,16 @@ class SerialPortHandler:
                          # --- START: New logic to prioritize outgoing queue ---
                         # Check if there's data in the outgoing_queue and attempt to send one item
                         # before queueing the just-received incoming message.
+                        #
+                        # DELIBERATE optimistic local echo: pending commands are merged into the
+                        # just-received frame, the merged frame is written to the board, and that
+                        # SAME merged frame (not the raw received one) is queued below as the
+                        # reported state. LEDButton.run() consumes incoming_queue for
+                        # button-press edge detection (res[idx]==49 and status[idx]==48) and
+                        # prev-state tracking, so queueing the raw frame instead would
+                        # re-report a press the 'B' ack below already cleared (duplicate press
+                        # event) and show stale LED colors until the board's next physical echo.
+                        # If outgoing_queue is empty here, buffer is passed through unmutated.
                         if not self.outgoing_queue.empty():
                             data = None 
                             try:
@@ -378,6 +388,8 @@ class SerialPortHandler:
 
                         try:
                             send_income = True
+                            # If a command above was merged into buffer, this queue entry is the
+                            # commanded state (optimistic local echo), not the board's own report.
                             income = bytes(buffer)
                             self.last_update = time.time()
                             if prev_income == income:
