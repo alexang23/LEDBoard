@@ -6,6 +6,9 @@ from config import settings
 
 from mqtt_svc2 import MQTTSvc
 from device import LEDButton
+import gyro_watchdog
+
+CONTROLLER_WATCHDOG_MAX_GAP = 60  # covers shutdown (2x stop_and_wait(15)) and retry cleanup+backoff
 
 
 class Controller(Thread):
@@ -25,6 +28,7 @@ class Controller(Thread):
     def run(self):
 
         while not self.stop:
+            gyro_watchdog.touch("Controller", max_gap=CONTROLLER_WATCHDOG_MAX_GAP)
             try:
                 # Construct devices before starting MQTTSvc: incoming messages
                 # are routed via controller.device/device2 (_route_to_device),
@@ -48,6 +52,7 @@ class Controller(Thread):
                 
                 while not self.stop:
                     try:
+                        gyro_watchdog.touch("Controller", max_gap=CONTROLLER_WATCHDOG_MAX_GAP)
                         sleep(0.2)
                     except KeyboardInterrupt:
                         self.tsc_logger.warning('IPC killed by user')
@@ -81,7 +86,11 @@ class Controller(Thread):
                 if self.mqtt_svc:
                     self.mqtt_svc.stop = True
                     self.mqtt_svc = None
+                # heartbeat before the backoff sleep so the retry path is covered
+                gyro_watchdog.touch("Controller", max_gap=CONTROLLER_WATCHDOG_MAX_GAP)
                 sleep(5)
+
+        gyro_watchdog.unregister("Controller")
                 
                 
                 
