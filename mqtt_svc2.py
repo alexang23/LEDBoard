@@ -768,7 +768,9 @@ class MQTTSvc(Thread):
             await asyncio.gather(*periodic_tasks, return_exceptions=True)
 
     def run(self):
-        gyro_watchdog.start_watchdog(self.logger)
+        # The Controller owns the watchdog lifecycle (GYRO-300 pattern):
+        # start_watchdog() is called there with a dedicated logger, so this
+        # service only maintains its own heartbeat (touch/unregister).
         if hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
             self._loop = asyncio.WindowsSelectorEventLoopPolicy().new_event_loop()
         else:
