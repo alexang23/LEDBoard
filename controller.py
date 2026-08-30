@@ -7,8 +7,12 @@ from config import settings
 from mqtt_svc2 import MQTTSvc
 from device import LEDButton
 import gyro_watchdog
+from global_log import LoggerFile
 
-CONTROLLER_WATCHDOG_MAX_GAP = 60  # covers shutdown (2x stop_and_wait(15)) and retry cleanup+backoff
+# Startup / retry / shutdown are slow phases (2x stop_and_wait(15), cleanup +
+# backoff); the steady-state poll runs every 0.2s and gets a tighter gap.
+CONTROLLER_WATCHDOG_MAX_GAP = 60
+CONTROLLER_WATCHDOG_STEADY_MAX_GAP = 30
 
 
 class Controller(Thread):
@@ -16,6 +20,7 @@ class Controller(Thread):
         Thread.__init__(self)
         self.stop = False
         self.tsc_logger = logger
+        self.logger_watchdog = LoggerFile("app_thread", "app_thread.log")
         # self.sender = sender
         self.alarms = {}
         self.loadport = {}
@@ -24,9 +29,16 @@ class Controller(Thread):
         self.mqtt_svc = None
         self.device = None
         self.device2 = None
-        
+
     def run(self):
 
+        # Own the watchdog lifecycle: the monitor must not depend on any
+        # managed service (MQTTSvc) having started, and its CRITICAL output
+        # goes to a dedicated log. start_watchdog is idempotent.
+        gyro_watchdog.start_watchdog(self.logger_watchdog)
+        # Heartbeat as early as possible so a stall during the startup phase
+        # is still caught.
+        gyro_watchdog.touch("Controller", max_gap=CONTROLLER_WATCHDOG_MAX_GAP)
         while not self.stop:
             gyro_watchdog.touch("Controller", max_gap=CONTROLLER_WATCHDOG_MAX_GAP)
             try:
@@ -52,16 +64,20 @@ class Controller(Thread):
                 
                 while not self.stop:
                     try:
-                        gyro_watchdog.touch("Controller", max_gap=CONTROLLER_WATCHDOG_MAX_GAP)
+                        gyro_watchdog.touch("Controller", max_gap=CONTROLLER_WATCHDOG_STEADY_MAX_GAP)
                         sleep(0.2)
                     except KeyboardInterrupt:
                         self.tsc_logger.warning('IPC killed by user')
                         self.stop = True
+                        gyro_watchdog.unregister("Controller")
                     except Exception:
                         self.tsc_logger.error(traceback.format_exc())
                         pass
 
                 self.tsc_logger.warning('IPC Stopping')
+                # shutdown is a slow phase: re-widen the gap before the
+                # bounded stop_and_wait calls
+                gyro_watchdog.touch("Controller", max_gap=CONTROLLER_WATCHDOG_MAX_GAP)
                 if self.device:
                     self.device.stop_and_wait(timeout=15)
                 if self.device2:
