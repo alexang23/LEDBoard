@@ -1,16 +1,11 @@
 from threading import Thread
 from time import sleep
-from datetime import datetime
 
-import re
 import traceback
-from config import Settings, settings
+from config import settings
 
 from mqtt_svc2 import MQTTSvc
 from device import LEDButton
-import logging
-from logging.handlers import TimedRotatingFileHandler
-import os
 
 
 class Controller(Thread):
