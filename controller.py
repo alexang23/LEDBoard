@@ -57,7 +57,7 @@ class Controller(Thread):
                     except KeyboardInterrupt:
                         self.tsc_logger.warning('IPC killed by user')
                         self.stop = True
-                    except:
+                    except Exception:
                         self.tsc_logger.error(traceback.format_exc())
                         pass
 
