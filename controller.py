@@ -2,7 +2,6 @@ from threading import Thread
 from time import sleep
 from datetime import datetime
 
-import collections
 import re
 import traceback
 from config import Settings, settings
@@ -20,7 +19,6 @@ class Controller(Thread):
         self.stop = False
         self.tsc_logger = logger
         # self.sender = sender
-        self.receive_queue = collections.deque()
         self.alarms = {}
         self.loadport = {}
         self.device_id = settings.DEVICE_ID
@@ -28,9 +26,6 @@ class Controller(Thread):
         self.mqtt_svc = None
         self.device = None
         self.device2 = None
-        
-    def data_process(self, data):
-        print(data)
         
     def run(self):
 
@@ -58,10 +53,6 @@ class Controller(Thread):
                 
                 while not self.stop:
                     try:
-                        while self.receive_queue:
-                            data = self.receive_queue.popleft()
-                            self.data_process(data)
-
                         sleep(0.2)
                     except KeyboardInterrupt:
                         self.tsc_logger.warning('IPC killed by user')
