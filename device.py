@@ -202,7 +202,7 @@ class SerialPortHandler:
 
     def start(self):
         # if not self.ser.is_open:
-        if not self.ser.isOpen():
+        if not self.ser.is_open:
             self.ser.open()
             self.ser.reset_input_buffer()
             time.sleep(2)  # Give time for connection
@@ -231,7 +231,7 @@ class SerialPortHandler:
                 gyro_watchdog.unregister(f"SerialPortHandler-board{self.board}")
         # self.writer_thread.join()
         try:
-            if self.ser.isOpen():
+            if self.ser.is_open:
                 self.ser.close()
         except Exception as exc:
             self.logger.error(f"board {self.board}: serial port close error : {exc}")
@@ -295,7 +295,7 @@ class SerialPortHandler:
                             #             status[data[1]+2] = data[2][2]
                             #         elif data[0] == 'B':
                             #             status[data[1]] = 48
-                            #     if self.ser.isOpen():
+                            #     if self.ser.is_open:
                             #         # IMPORTANT: This write is blocking and happens in the _read_loop.
                             #         # If self.ser.write takes a long time, it will block reading new data.
                             #         # This deviates from the original design where _write_loop handles writes asynchronously.
@@ -368,7 +368,7 @@ class SerialPortHandler:
                                     elif data[0] == 'B': # button command
                                         buffer[data[1]] = 48
                                 
-                                if self.ser.isOpen():
+                                if self.ser.is_open:
                                     # IMPORTANT: This write is blocking and happens in the _read_loop.
                                     # If self.ser.write takes a long time, it will block reading new data.
                                     # This deviates from the original design where _write_loop handles writes asynchronously.
@@ -463,7 +463,7 @@ class SerialPortHandler:
                 # Wait for item, but allow graceful shutdown
                 data = self.outgoing_queue.get(timeout=0.1)
                 # if self.ser.is_open:
-                if self.ser.isOpen():
+                if self.ser.is_open:
                     # self.ser.write((data + '\n').encode())
                     self.ser.write(data)
                     self.outgoing_queue.task_done()
@@ -559,7 +559,7 @@ class LEDButton(threading.Thread):
     def write(self, dlist): # current no used
         try:
             # if self.device.is_open:
-            if self.device.ser.isOpen():
+            if self.device.ser.is_open:
                 data = dlist[:]
                 if settings.LEDBOARD_DEBUG_ENABLE:
                     # dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S %f')[:-3]
@@ -984,7 +984,7 @@ class LEDButton(threading.Thread):
 
                 while self.cmd_queue :
                     # if not self.device.is_open:
-                    if not self.device.ser.isOpen():
+                    if not self.device.ser.is_open:
                         break
                     data = self.cmd_queue.popleft()
                     if self.svr_enable :
