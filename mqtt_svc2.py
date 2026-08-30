@@ -499,8 +499,8 @@ class MQTTSvc(Thread):
                 if not await self._publish(self.topic_server, payload):
                     return False
 
-            pattern = r'"device_id":\s*".+?",?\s*'
-            no_deviceid_payload = re.sub(pattern, '', payload)
+            stripped = {k: v for k, v in payload_data.items() if k != "device_id"}
+            no_deviceid_payload = json.dumps(stripped)
             return await self._publish(self.topic, no_deviceid_payload)
         except Exception as err:
             self.logger.error(f"mqtt : data_process : {str(err)}")
