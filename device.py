@@ -31,8 +31,8 @@ def led_frame(bit_index: int | None = None, start: str = 'A') -> tuple[int, ...]
         frame[bit_index] = ord('1')
     return tuple(frame)
 
-initialize = list(led_frame())
-reset = list(led_frame(start='C'))
+initialize = led_frame()
+reset = led_frame(start='C')
 B1Red =   led_frame(2)
 B1Green = led_frame(3)
 B1Blue =  led_frame(4)
@@ -496,7 +496,7 @@ class LEDButton(threading.Thread):
         self.logger = log
         self.logger_led = LoggerFile(f"ledboard_{self.board}", f"ledboard_{self.board}.log")
         self.name = name
-        self.status = initialize
+        self.status = list(initialize)
         self.idx = {1:1, 2:5, 3:9, 4:13, 5:17, 6:21, 7:25, 8:29}
         # self.button = {1:48, 2:48, 3:48, 4:48, 5:48, 6:48, 7:48, 8:48}
         self.btntime = {1:time.time(), 2:time.time(), 3:time.time(), 4:time.time(), 5:time.time(), 6:time.time(), 7:time.time(), 8:time.time()}
