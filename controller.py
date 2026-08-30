@@ -64,9 +64,8 @@ class Controller(Thread):
                 self.tsc_logger.warning('IPC Stopping')
                 if self.device:
                     self.device.stop_and_wait(timeout=15)
-                if settings.LEDBOARD2_ENABLE:
-                    if self.device2:
-                        self.device2.stop_and_wait(timeout=15)
+                if self.device2:
+                    self.device2.stop_and_wait(timeout=15)
                 if self.mqtt_svc:
                     self.mqtt_svc.stop = True
                 self.tsc_logger.warning('IPC Stopped')
@@ -81,10 +80,9 @@ class Controller(Thread):
                 if self.device:
                     self.device.stop_and_wait(timeout=15)
                     self.device = None
-                if settings.LEDBOARD2_ENABLE:
-                    if self.device2:
-                        self.device2.stop_and_wait(timeout=15)
-                        self.device2 = None
+                if self.device2:
+                    self.device2.stop_and_wait(timeout=15)
+                    self.device2 = None
                 if self.mqtt_svc:
                     self.mqtt_svc.stop = True
                     self.mqtt_svc = None
