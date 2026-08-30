@@ -79,16 +79,25 @@ class Controller(Thread):
                     if self.mqtt_svc:
                         self.mqtt_svc.stop = True
                     self.tsc_logger.warning('IPC Stopped')
-            except:
+            except Exception:
+                # Startup failure: clean up what was built and retry after a
+                # short backoff. This used to set self.stop = True, which made
+                # the outer while run at most once - a single transient failure
+                # at boot killed the controller until manual restart.
+                # NOTE: bare except was widened to Exception so that a
+                # retry-forever loop cannot swallow SystemExit/GeneratorExit.
                 self.tsc_logger.error(traceback.format_exc())
                 if self.device:
                     self.device.stop_and_wait(timeout=15)
+                    self.device = None
                 if settings.LEDBOARD2_ENABLE:
                     if self.device2:
                         self.device2.stop_and_wait(timeout=15)
+                        self.device2 = None
                 if self.mqtt_svc:
                     self.mqtt_svc.stop = True
-                self.stop = True
+                    self.mqtt_svc = None
+                sleep(5)
                 
                 
                 
