@@ -5,6 +5,7 @@ import copy
 import json
 import random
 import re
+import sys
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -24,9 +25,10 @@ MAX_RECONNECT_DELAY = 30
 MAX_OUTBOUND_RETRIES = 5
 MAX_CMD_WAIT = 30
 # Liveness gap for the MQTTSvc watchdog name. Must cover the worst legitimate
-# quiet period: backoff (<=MAX_RECONNECT_DELAY) + a connect attempt + margin,
-# so a normal broker outage is not reported as a stalled thread.
-MQTT_WATCHDOG_MAX_GAP = max(90, MAX_RECONNECT_DELAY + int(getattr(settings, "MQTT_TIMEOUT", 10)) + 60)
+# quiet period: backoff (<=MAX_RECONNECT_DELAY) + a connect attempt
+# (<= settings.MQTT_TIMEOUT) + margin, so a normal broker outage is not
+# reported as a stalled thread.
+MQTT_WATCHDOG_MAX_GAP = max(90, MAX_RECONNECT_DELAY + settings.MQTT_TIMEOUT + 60)
 # Dedicated, size-bounded executor for the blocking E84/RFID calls wrapped by
 # asyncio.wait_for. A stuck thread cannot be killed, but bounding it here keeps
 # one wedged call from occupying a slot in the shared default executor.
@@ -92,7 +94,6 @@ class MQTTSvc(Thread):
         )
 
         self.daemon = True
-        self.start()
 
     @property
     def stop(self):
@@ -206,6 +207,7 @@ class MQTTSvc(Thread):
             "identifier": self.client_id,
             "protocol": ProtocolVersion(settings.MQTT_PROTOCOL),
             "transport": settings.MQTT_TRANSPORT,
+            "timeout": settings.MQTT_TIMEOUT,
             "keepalive": settings.MQTT_KEEPALIVE,
             "clean_start": settings.MQTT_CLEAN_START_FIRST_ONLY,
             "will": Will(
@@ -250,7 +252,10 @@ class MQTTSvc(Thread):
         finally:
             self.mqttc = None
             if entered:
-                self._on_disconnect()
+                reason = sys.exc_info()[1]
+                if isinstance(reason, asyncio.CancelledError):
+                    reason = None
+                self._on_disconnect(reason=reason)
                 if self.stop:
                     # Graceful shutdown: the will is discarded on a clean DISCONNECT,
                     # so clear the retained "online" birth message explicitly.
