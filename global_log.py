@@ -1,9 +1,11 @@
 from colorlog import StreamHandler, ColoredFormatter
-from logging.handlers import TimedRotatingFileHandler
+from logging.handlers import TimedRotatingFileHandler, QueueHandler, QueueListener
 from pathlib import Path
 
+import atexit
 import logging
 import os
+import queue
 # import time
 
 # from app.host_api import g_app
@@ -13,6 +15,7 @@ from datetime import datetime # , date, timedelta
 #from fastapi.logging import default_handler
 #from main import logger
 from config import settings
+from log_utils import DailyDatedFileHandler
 
 # console_logger = logging.getLogger()
 # console_logger.setLevel(logging.ERROR) # NOTSET, DEBUG, INFO, WARNING, ERROR, CRITICAL
@@ -432,6 +435,91 @@ class LoggerFile:
             self.log.error(message, args)
         else:
             self.log.error(message)
+
+class AsyncLoggerFile:
+    def __init__(self, name, file=None, backup_count=None) -> None:
+        self.log = logging.getLogger(name)
+        self.log.setLevel(logging.INFO)
+        self.log.propagate = False
+
+        existing_listener = getattr(self.log, "_queue_listener", None)
+        if existing_listener is not None:
+            existing_listener.stop()
+            delattr(self.log, "_queue_listener")
+
+        for handler in self.log.handlers[:]:
+            self.log.removeHandler(handler)
+            handler.close()
+
+        self._listener = None
+        self._file_handler = None
+
+        if file:
+            log_file = os.path.join(os.getcwd(), "log", file)
+            self._file_handler = DailyDatedFileHandler(
+                log_file,
+                backupCount=backup_count if backup_count is not None else settings.log_ipc_preserve,
+            )
+            self._file_handler.setFormatter(UTCFormatter("[%(asctime)s] [%(levelname)s] [%(threadName)s]: %(message)s"))
+            self._file_handler.setLevel(logging.INFO)
+
+            log_queue = queue.SimpleQueue()
+            queue_handler = QueueHandler(log_queue)
+            queue_handler.setLevel(logging.INFO)
+            self.log.addHandler(queue_handler)
+
+            self._listener = QueueListener(log_queue, self._file_handler, respect_handler_level=True)
+            self._listener.start()
+            self.log._queue_listener = self._listener
+            atexit.register(self.stop)
+
+        self.log.info(f"###### {name} logger started ######")
+
+    def stop(self):
+        if self._listener is not None:
+            self._listener.stop()
+            self._listener = None
+
+        if self._file_handler is not None:
+            self._file_handler.close()
+            self._file_handler = None
+
+        if hasattr(self.log, "_queue_listener"):
+            delattr(self.log, "_queue_listener")
+
+    def debug(self, message, args=None):
+        if args is not None:
+            self.log.debug(message, extra=args)
+        else:
+            self.log.debug(message)
+
+    def info(self, message, args=None):
+        if args is not None:
+            self.log.info(message, extra=args)
+        else:
+            self.log.info(message)
+
+    def warning(self, message, args=None):
+        if args is not None:
+            self.log.warning(message, extra=args)
+        else:
+            self.log.warning(message)
+
+    def error(self, message, args=None, exc_info=False):
+        if isinstance(args, dict):
+            self.log.error(message, extra=args, exc_info=exc_info)
+        elif args is not None:
+            self.log.error(message, args, exc_info=exc_info)
+        else:
+            self.log.error(message, exc_info=exc_info)
+
+    def critical(self, message, args=None, exc_info=False):
+        if isinstance(args, dict):
+            self.log.critical(message, extra=args, exc_info=exc_info)
+        elif args is not None:
+            self.log.critical(message, args, exc_info=exc_info)
+        else:
+            self.log.critical(message, exc_info=exc_info)
 
 # glogger = Logger('api', 'api.log')
 # glogger = LoggerFastAPI('api.log')

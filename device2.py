@@ -6,7 +6,7 @@ import threading
 import collections
 from collections import OrderedDict
 from config import settings
-from global_log import LoggerFile
+from global_log import AsyncLoggerFile
 import gyro_watchdog
 import queue
 import re
@@ -354,7 +354,7 @@ class LEDButton(threading.Thread):
         self.board = board
         self.mqtt_svc = mqtt_svc
         self.logger = log
-        self.logger_led = LoggerFile(f"ledboard_{self.board}", f"ledboard_{self.board}.log")
+        self.logger_led = AsyncLoggerFile(f"ledboard_{self.board}", f"ledboard_{self.board}.log")
         self.name = name
         self.status = list(initialize)
         self.idx = {1:1, 2:5, 3:9, 4:13, 5:17, 6:21, 7:25, 8:29}
