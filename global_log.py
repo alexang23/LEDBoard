@@ -6,66 +6,149 @@ import atexit
 import logging
 import os
 import queue
-# import time
+import re
+import time
 
 # from app.host_api import g_app
 #from fastapi.logger import logger as fastapi_logger
-from datetime import datetime # , date, timedelta
+from datetime import datetime, timezone # , date, timedelta
 # from datetime import timezone
 #from fastapi.logging import default_handler
 #from main import logger
 from config import settings
-from log_utils import DailyDatedFileHandler
 
-# console_logger = logging.getLogger()
-# console_logger.setLevel(logging.ERROR) # NOTSET, DEBUG, INFO, WARNING, ERROR, CRITICAL
-# console_logger.setLevel(settings.LOG_LEVEL)
-# formatter = logging.Formatter(
-# 	# '[%(levelname)1.1s %(asctime)s %(module)s:%(lineno)d] %(message)s [%(pathname)s %(funcName)s]') #,datefmt='%Y%m%d %H:%M:%S')
-#     '[%(asctime)s] %(message)s') #,datefmt='%Y%m%d %H:%M:%S')
+LOG_DATE_FORMAT = '%Y-%m-%d'
 
-# ch = logging.StreamHandler()
-# ch.setLevel(logging.ERROR)
-# ch.setLevel(settings.LOG_LEVEL)
-# ch.setFormatter(formatter)
-# console_logger.addHandler(ch)
 
-# log_filename = datetime.datetime.now().strftime("%Y-%m-%d_%H_%M_%S.log")
-# fh = logging.FileHandler(log_filename)
-# fh.setLevel(logging.DEBUG)
-# fh.setFormatter(formatter)
-# console_logger.addHandler(fh)
+def get_dated_log_path(filename, for_datetime=None):
+    target_datetime = for_datetime or datetime.now()
+    source_path = Path(filename)
+    return source_path.with_name(
+        f'{source_path.stem}_{target_datetime.strftime(LOG_DATE_FORMAT)}{source_path.suffix}'
+    )
 
-#fastapi_logger.setLevel(logging.DEBUG)
+
+class DailyPatternTimedRotatingFileHandler(TimedRotatingFileHandler):
+    def __init__(
+        self,
+        filename,
+        when='midnight',
+        interval=1,
+        backupCount=0,
+        encoding=None,
+        delay=False,
+        utc=False,
+        atTime=None,
+        errors=None,
+    ):
+        self.source_path = Path(filename)
+        if str(self.source_path.parent) not in ('', '.'):
+            os.makedirs(self.source_path.parent, exist_ok=True)
+        dated_path = get_dated_log_path(self.source_path)
+        super().__init__(
+            str(dated_path),
+            when=when,
+            interval=interval,
+            backupCount=backupCount,
+            encoding=encoding,
+            delay=delay,
+            utc=utc,
+            atTime=atTime,
+            errors=errors,
+        )
+        # Enforce retention at startup as well: a process restarted several
+        # times within one day may never reach a midnight rollover, so without
+        # this, old dated files could accumulate past backupCount between
+        # restarts. No-op when backupCount <= 0.
+        self._delete_old_files()
+
+    def _dated_path_for(self, current_time):
+        # Match the parent class convention: respect self.utc so the date
+        # suffix always corresponds to the actual rollover boundary.
+        if self.utc:
+            event_dt = datetime.fromtimestamp(current_time, tz=timezone.utc)
+        else:
+            event_dt = datetime.fromtimestamp(current_time)
+        return get_dated_log_path(self.source_path, event_dt)
+
+    def _delete_old_files(self):
+        if self.backupCount <= 0:
+            return
+
+        keep_count = self.backupCount + 1
+        current_file = Path(self.baseFilename).resolve()
+        # Match only files with a strict _YYYY-MM-DD date suffix so unrelated
+        # files sharing the stem prefix are never deleted.
+        dated_name_pattern = re.compile(
+            r'^' + re.escape(self.source_path.stem)
+            + r'_\d{4}-\d{2}-\d{2}'
+            + re.escape(self.source_path.suffix) + r'$'
+        )
+        dated_logs = sorted(
+            path
+            for path in self.source_path.parent.glob(f'{self.source_path.stem}_*{self.source_path.suffix}')
+            if path.is_file() and dated_name_pattern.match(path.name)
+        )
+
+        if len(dated_logs) <= keep_count:
+            return
+
+        for path in dated_logs[: len(dated_logs) - keep_count]:
+            if path.resolve() == current_file:
+                continue
+            try:
+                path.unlink()
+            except OSError:
+                continue
+
+    def doRollover(self):
+        if self.stream:
+            self.stream.close()
+            self.stream = None
+
+        current_time = int(time.time())
+        new_path = self._dated_path_for(current_time)
+        if self.namer is not None:
+            new_path = Path(self.namer(str(new_path)))
+        self.baseFilename = os.path.abspath(str(new_path))
+
+        if not self.delay:
+            self.stream = self._open()
+
+        new_rollover_at = self.computeRollover(current_time)
+        while new_rollover_at <= current_time:
+            new_rollover_at = new_rollover_at + self.interval
+        self.rolloverAt = new_rollover_at
+        self._delete_old_files()
 
 class UTCFormatter(logging.Formatter):
-    # converter = time.gmtime
-    # converter = time.localtime
-    
+    # 'event_time' is a non-standard LogRecord attribute attached via
+    # logging's extra= mechanism (e.g. e84_event._log_command passes
+    # extra={"event_time": ...} through AsyncLoggerFile, and the attribute
+    # survives the QueueHandler pickle round-trip). It carries the original
+    # event timestamp so the log shows when the event actually happened
+    # instead of when the record was emitted. Records without it fall back
+    # to record.created (the emit time).
     def formatTime(self, record, datefmt=None):
-        # dt = datetime.fromtimestamp(record.created, tz=timezone.utc)
-        # dt = datetime.fromtimestamp(record.created).astimezone()
-        dt = datetime.fromtimestamp(record.created)
-        
+        event_time = getattr(record, 'event_time', None)
+        if isinstance(event_time, datetime):
+            dt = event_time
+        elif event_time is not None:
+            dt = datetime.fromtimestamp(event_time)
+        else:
+            dt = datetime.fromtimestamp(record.created)
+
         if datefmt:
             return dt.strftime(datefmt)
         else:
-            return dt.isoformat(sep=' ', timespec='milliseconds')  # Change 'seconds' to 'milliseconds' or 'microseconds' if needed 
-    
-        # dt = self.converter(record.created)
-        # if datefmt:
-        #     s = time.strftime(datefmt, dt)
-        # else:
-        #     t = time.strftime("%Y-%m-%d %H:%M:%S", dt)
-        #     s = "%s,%03d" % (t, record.msecs)
-        # return s
-    
+            return dt.isoformat(sep=' ', timespec='milliseconds')  # Change 'seconds' to 'milliseconds' or 'microseconds' if needed
+
 class LoggerSECS:
     def __init__(self, name):
         self.logger = logging.getLogger(f'{name}_communication')
         self.name = name
         self.configure_logger()
-        
+
     def configure_logger(self):
         try:
             # delete old handler if exist
@@ -76,26 +159,17 @@ class LoggerSECS:
             # self.logger.setLevel(settings.LOG_LEVEL)
 
             filename = os.path.join(os.getcwd(), 'log/SECS_{}.log'.format(self.name))
-            
-            if not Path(filename).is_file():
-                os.makedirs(os.path.dirname(filename), exist_ok=True)
-                log_file_handler = logging.FileHandler(filename, mode='w', encoding=None, delay=False)
-            
-            commLogFileHandler = TimedRotatingFileHandler(filename, when='midnight', interval=1, backupCount=settings.log_secs_preserve)
+
+            commLogFileHandler = DailyPatternTimedRotatingFileHandler(filename, when='midnight', interval=1, backupCount=settings.log_secs_preserve)
             # commLogFileHandler.setFormatter(logging.Formatter('%(asctime)s: %(message)s'))
             commLogFileHandler.setFormatter(UTCFormatter('%(asctime)s %(message)s'))
-            # commLogFileHandler.setLevel(logging.DEBUG)
-            # commLogFileHandler.setLevel(settings.LOG_LEVEL)
             self.logger.addHandler(commLogFileHandler)
-            
-            # stream_handler = StreamHandler()
-            # stream_handler.setFormatter(UTCFormatter('%(asctime)s %(message)s'))
-            # stream_handler.setLevel(logging.INFO)
-            # self.logger.addHandler(stream_handler)
-            
-        except Exception as err:
-            print(str(err))
-            
+
+        except Exception:
+            logging.getLogger(__name__).exception(
+                'Failed to configure SECS logger %s', self.name
+            )
+
     def get_logger(self):
         return self.logger
 
@@ -106,19 +180,38 @@ class SystemLogFormatter(logging.Formatter):
         # record.url = None
         # record.remote_addr = None
 
-        if 'event' in record.args:
+        if isinstance(record.args, dict) and 'event' in record.args:
             record.event = record.args.get('event', 'SYSTEM')
 
-        if 'user' in record.args:
+        if isinstance(record.args, dict) and 'user' in record.args:
             record.user = record.args.get('user', 'SYSTEM')
-            
-        if 'type' in record.args:
-            record.type = record.args.get('user', record.levelname)
+
+        if isinstance(record.args, dict) and 'type' in record.args:
+            record.type = record.args.get('type', record.levelname)
 
         # if has_request_context():
         #     record.url = request.url
         #     record.remote_addr = request.remote_addr
-        
+
+        original_format = self._style._fmt
+        if record.event == 'SYSTEM' and record.user == 'SYSTEM':
+            self._style._fmt = original_format.replace(' [%(event)s] [%(user)s]', '')
+
+        try:
+            return super().format(record)
+        finally:
+            self._style._fmt = original_format
+
+
+class EventOnlyLogFormatter(SystemLogFormatter):
+    def format(self, record):
+        if isinstance(record.args, dict):
+            args = dict(record.args)
+        else:
+            args = {}
+
+        args.setdefault('event', datetime.fromtimestamp(record.created).strftime('%M:%S,%f')[:-3])
+        record.args = args
         return super().format(record)
 
 class EndpointFilter(logging.Filter):
@@ -126,10 +219,20 @@ class EndpointFilter(logging.Filter):
         return record.getMessage().find('/api/mcs_queue') == -1
 
 class Logger:
-    def __init__(self, name, file = None) -> None:
+    def __init__(self, name, file = None, event_only = False) -> None:
+        stream_format = (
+            '%(log_color)s[%(asctime)s] [%(levelname)s] [%(threadName)s]: %(message)s'
+            if event_only
+            else '%(log_color)s[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(event)s] [%(user)s]: %(message)s'
+        )
+        file_format = (
+            '[%(asctime)s] [%(levelname)s] [%(threadName)s]: %(message)s'
+            if event_only
+            else '[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(event)s] [%(user)s]: %(message)s'
+        )
         colored_formatter = ColoredFormatter(
             # '%(log_color)s[%(asctime)s] [%(levelname)s] [%(event)s] [%(user)s] [%(module)s]:[%(lineno)d]: %(message)s',
-            '%(log_color)s[%(asctime)s] [%(levelname)s] [%(event)s] [%(user)s]: %(message)s',
+            stream_format,
             log_colors={
                 'DEBUG':    'cyan',
                 'INFO':     'green',
@@ -139,47 +242,31 @@ class Logger:
                 'SERIOUS': 'red,bg_white',
             }
         )
-        formatter = SystemLogFormatter('[%(asctime)s] [%(levelname)s] [%(event)s] [%(user)s]: %(message)s')
-        
+        formatter_class = EventOnlyLogFormatter if event_only else SystemLogFormatter
+        formatter = formatter_class(file_format)
+
         self.log = logging.getLogger(name)
         for handler in self.log.handlers[:]:
-            if isinstance(handler, logging.StreamHandler):
-                self.log.removeHandler(handler)
-                handler.close()
+            self.log.removeHandler(handler)
+            handler.close()
         self.log.setLevel(settings.LOG_LEVEL)
-        # self.log.setLevel(logging.ERROR)  ## add ?
-        # self.log.setLevel(settings.LOG_LEVEL)
 
         if file:
             # log_file = '{}/log/{}'.format(os.getcwd(), file)
             log_file = os.path.join(os.getcwd(), 'log', file)
 
-            # Create log files if not exist
-            if not Path(log_file).is_file():
-                os.makedirs(os.path.dirname(log_file), exist_ok=True)
-                log_file_handler = logging.FileHandler(log_file, mode='w', encoding=None, delay=False)
-            
-            timed_file_handler = TimedRotatingFileHandler(log_file, when='midnight', backupCount=settings.log_ipc_preserve)
+            timed_file_handler = DailyPatternTimedRotatingFileHandler(log_file, when='midnight', backupCount=settings.log_ipc_preserve)
             timed_file_handler.setFormatter(formatter)
             timed_file_handler.setLevel(settings.LOG_LEVEL)
             self.log.addHandler(timed_file_handler)
-        
+
         if settings.LOG_STDOUT:
             stream_handler = StreamHandler()
             stream_handler.setFormatter(colored_formatter)
             stream_handler.setLevel(settings.LOG_LEVEL)
             self.log.addHandler(stream_handler)
-        
-        # if settings.LOG_SQLITE:
-        #     sqlalchemy_handler = SQLAlchemyHandler()
-        #     sqlalchemy_handler.setLevel(settings.LOG_LEVEL)
-        #     self.log.addHandler(sqlalchemy_handler)
 
-        # if not g_app.debug:
-        #     #fastapi_logger.removeHandler(fastapi_logger.default_handler) #default_handler)
-        #     fastapi_logger.addHandler(stream_handler)
-        
-        self.log.info(f'{name} Logger Started')
+        self.log.info(f'###### {name} logger started ######')
         # self.log.flush()
 
     def debug(self, message, args = None):
@@ -192,7 +279,7 @@ class Logger:
             # #fastapi_logger.debug(message)
             # self.errorlog.debug(message)
             pass
-        
+
     def info(self, message, args = None):
         if args is not None:
             self.log.info(message, args)
@@ -200,7 +287,7 @@ class Logger:
         else:
             self.log.info(message)
             #fastapi_logger.info(message)
-        
+
     def warning(self, message, args = None):
         if args is not None:
             self.log.warning(message, args)
@@ -208,26 +295,22 @@ class Logger:
         else:
             self.log.warning(message)
             #fastapi_logger.warning(message)
-        
-    def error(self, message, args = None):
+
+    def error(self, message, args = None, exc_info = False):
         if args is not None:
-            self.log.error(message, args)
+            self.log.error(message, args, exc_info=exc_info)
             #fastapi_logger.error(message, args)
             # self.errorlog.error(message, args)
         else:
-            self.log.error(message)
+            self.log.error(message, exc_info=exc_info)
             #fastapi_logger.error(message)
             # self.errorlog.error(message)
-            
-    # def serious(self, message, args = None):
-    #     if args is not None:
-    #         self.log.serious(message, args)
-    #         #fastapi_logger.serious(message, args)
-    #         # self.errorlog.serious(message, args)
-    #     else:
-    #         self.log.serious(message)
-    #         #fastapi_logger.serious(message)
-    #         # self.errorlog.serious(message)
+
+    def critical(self, message, args = None, exc_info = False):
+        if args is not None:
+            self.log.critical(message, args, exc_info=exc_info)
+        else:
+            self.log.critical(message, exc_info=exc_info)
 
 class LoggerFastAPI:
     def __init__(self, file = None) -> None:
@@ -235,10 +318,10 @@ class LoggerFastAPI:
         # self.logger = logging.getLogger(name)
         # self.name = name
         self.name = None
-        
+
         colored_formatter = ColoredFormatter(
             # '%(log_color)s[%(asctime)s] [%(levelname)s] [%(event)s] [%(user)s] [%(module)s]:[%(lineno)d]: %(message)s',
-            '%(log_color)s[%(asctime)s] [%(levelname)s] [%(event)s] [%(user)s]: %(message)s',
+            '%(log_color)s[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(event)s] [%(user)s]: %(message)s',
             log_colors={
                 'DEBUG':    'cyan',
                 'INFO':     'green',
@@ -248,20 +331,10 @@ class LoggerFastAPI:
                 'SERIOUS': 'red,bg_white',
             }
         )
-        formatter = SystemLogFormatter('[%(asctime)s] [%(levelname)s] [%(event)s] [%(user)s]: %(message)s')
-        
-        loggers = (
-            logging.getLogger(name)
-            for name in logging.root.manager.loggerDict
-            if name.startswith("uvicorn")
-        )
-        
-        for uvicorn_logger in loggers:
-            print(uvicorn_logger.name)
-            # uvicorn_logger.handlers = []
-        
+        formatter = SystemLogFormatter('[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(event)s] [%(user)s]: %(message)s')
+
         self.log = {}
-        
+
         name = 'uvicorn'
         self.log[name] = logging.getLogger(name)
         for handler in self.log[name].handlers[:]:
@@ -271,7 +344,7 @@ class LoggerFastAPI:
         self.log[name].setLevel(settings.LOG_LEVEL)
         # self.log.setLevel(logging.ERROR)  ## add ?
         # self.log.setLevel(settings.LOG_LEVEL)
-        
+
         name2 = 'uvicorn.access'
         self.log[name2] = logging.getLogger(name2)
         for handler in self.log[name2].handlers[:]:
@@ -279,54 +352,28 @@ class LoggerFastAPI:
                 self.log[name2].removeHandler(handler)
                 handler.close()
         self.log[name2].setLevel(settings.LOG_LEVEL)
-        
-        # name3 = 'uvicorn.error'
-        # self.log[name3] = logging.getLogger(name3)
-        # for handler in self.log[name3].handlers[:]:
-        #     if isinstance(handler, logging.StreamHandler):
-        #         self.log[name3].removeHandler(handler)
-        #         handler.close()
-        # self.log[name3].setLevel(logging.INFO)
 
         if file:
             # log_file = '{}/log/{}'.format(os.getcwd(), file)
             log_file = os.path.join(os.getcwd(), 'log', file)
 
-            # Create log files if not exist
-            if not Path(log_file).is_file():
-                os.makedirs(os.path.dirname(log_file), exist_ok=True)
-                log_file_handler = logging.FileHandler(log_file, mode='w', encoding=None, delay=False)
-            
-            timed_file_handler = TimedRotatingFileHandler(log_file, when='midnight', backupCount=settings.log_api_preserve)
+            timed_file_handler = DailyPatternTimedRotatingFileHandler(log_file, when='midnight', backupCount=settings.log_api_preserve)
             timed_file_handler.setFormatter(formatter)
             timed_file_handler.setLevel(settings.LOG_LEVEL)
             self.log[name].addHandler(timed_file_handler)
             self.log[name2].addHandler(timed_file_handler)
-            # self.log[name3].addHandler(timed_file_handler)
-        
+
         if settings.LOG_STDOUT:
             stream_handler = StreamHandler()
             stream_handler.setFormatter(colored_formatter)
             stream_handler.setLevel(settings.LOG_LEVEL)
             self.log[name].addHandler(stream_handler)
             self.log[name2].addHandler(stream_handler)
-            # self.log[name3].addHandler(stream_handler)
-        
-        # if settings.LOG_SQLITE:
-        #     sqlalchemy_handler = SQLAlchemyHandler()
-        #     sqlalchemy_handler.setFormatter(formatter)
-        #     sqlalchemy_handler.setLevel(settings.LOG_LEVEL)
-        #     self.log[name].addHandler(sqlalchemy_handler)
-        #     self.log[name2].addHandler(sqlalchemy_handler)
-        #     # self.log[name3].addHandler(sqlalchemy_handler)
 
-        # if not g_app.debug:
-        #     #fastapi_logger.removeHandler(fastapi_logger.default_handler) #default_handler)
-        #     fastapi_logger.addHandler(stream_handler)
         self.name = name
-        self.log[name].info(f'HostAPI Logger Started')
+        self.log[name].info(f'###### {name} logger started ######')
         # self.log.flush()
-        
+
     def get_logger(self):
         if self.name:
             return self.log[self.name]
@@ -335,41 +382,49 @@ class LoggerFastAPI:
 
     def debug(self, message, args = None):
         if args is not None:
-            for log in self.log:
+            for log in self.log.values():
                 log.debug(message, args)
         else:
-            for log in self.log:
+            for log in self.log.values():
                 log.debug(message)
-        
+
     def info(self, message, args = None):
         if args is not None:
-            for log in self.log:
+            for log in self.log.values():
                 log.info(message, args)
         else:
-            for log in self.log:
+            for log in self.log.values():
                 log.info(message)
-        
+
     def warning(self, message, args = None):
         if args is not None:
-            for log in self.log:
+            for log in self.log.values():
                 log.warning(message, args)
         else:
-            for log in self.log:
+            for log in self.log.values():
                 log.warning(message)
-        
-    def error(self, message, args = None):
+
+    def error(self, message, args = None, exc_info = False):
         if args is not None:
-            for log in self.log:
-                log.error(message, args)
+            for log in self.log.values():
+                log.error(message, args, exc_info=exc_info)
         else:
-            for log in self.log:
-                log.error(message)
+            for log in self.log.values():
+                log.error(message, exc_info=exc_info)
+
+    def critical(self, message, args = None, exc_info = False):
+        if args is not None:
+            for log in self.log.values():
+                log.critical(message, args, exc_info=exc_info)
+        else:
+            for log in self.log.values():
+                log.critical(message, exc_info=exc_info)
 
 class LoggerFile:
     def __init__(self, name, file = None) -> None:
         colored_formatter = ColoredFormatter(
             # '%(log_color)s[%(asctime)s] [%(levelname)s] [%(event)s] [%(user)s] [%(module)s]:[%(lineno)d]: %(message)s',
-            '%(log_color)s[%(asctime)s] : %(message)s',
+            '%(log_color)s[%(asctime)s] [%(threadName)s] : %(message)s',
             log_colors={
                 'DEBUG':    'cyan',
                 'INFO':     'green',
@@ -379,14 +434,13 @@ class LoggerFile:
                 'SERIOUS': 'red,bg_white',
             }
         )
-        formatter = SystemLogFormatter('[%(asctime)s] : %(message)s')
-        
+        formatter = SystemLogFormatter('[%(asctime)s] [%(threadName)s] : %(message)s')
+
         self.log = logging.getLogger(name)
         for handler in self.log.handlers[:]:
-            if isinstance(handler, logging.StreamHandler):
-                self.log.removeHandler(handler)
-                handler.close()
-        self.log.setLevel(logging.INFO)
+            self.log.removeHandler(handler)
+            handler.close()
+        self.log.setLevel(logging.DEBUG)
         # self.log.setLevel(logging.ERROR)  ## add ?
         # self.log.setLevel(settings.LOG_LEVEL)
 
@@ -394,22 +448,17 @@ class LoggerFile:
             # log_file = '{}/log/{}'.format(os.getcwd(), file)
             log_file = os.path.join(os.getcwd(), 'log', file)
 
-            # Create log files if not exist
-            if not Path(log_file).is_file():
-                os.makedirs(os.path.dirname(log_file), exist_ok=True)
-                log_file_handler = logging.FileHandler(log_file, mode='w', encoding=None, delay=False)
-            
-            timed_file_handler = TimedRotatingFileHandler(log_file, when='midnight', backupCount=settings.log_ipc_preserve)
+            timed_file_handler = DailyPatternTimedRotatingFileHandler(log_file, when='midnight', backupCount=settings.log_ipc_preserve)
             timed_file_handler.setFormatter(formatter)
-            timed_file_handler.setLevel(logging.INFO)
+            timed_file_handler.setLevel(logging.DEBUG)
             self.log.addHandler(timed_file_handler)
-        
+
         # stream_handler = StreamHandler()
         # stream_handler.setFormatter(colored_formatter)
         # stream_handler.setLevel(logging.INFO)
         # self.log.addHandler(stream_handler)
-        
-        self.log.info(f'{name} Logger Started\n')
+
+        self.log.info(f'###### {name} logger started ######')
         # self.log.flush()
 
     def debug(self, message, args = None):
@@ -417,35 +466,56 @@ class LoggerFile:
             self.log.debug(message, args)
         else:
             self.log.debug(message)
-        
+
     def info(self, message, args = None):
         if args is not None:
             self.log.info(message, args)
         else:
             self.log.info(message)
-        
+
     def warning(self, message, args = None):
         if args is not None:
             self.log.warning(message, args)
         else:
             self.log.warning(message)
-        
-    def error(self, message, args = None):
+
+    def error(self, message, args = None, exc_info = False):
         if args is not None:
-            self.log.error(message, args)
+            self.log.error(message, args, exc_info=exc_info)
         else:
-            self.log.error(message)
+            self.log.error(message, exc_info=exc_info)
+
+    def critical(self, message, args = None, exc_info = False):
+        if args is not None:
+            self.log.critical(message, args, exc_info=exc_info)
+        else:
+            self.log.critical(message, exc_info=exc_info)
+
+
+# Registry of live AsyncLoggerFile instances by logger name. A single atexit
+# hook stops them all, so re-creating a logger never leaks atexit callbacks.
+_async_logger_instances = {}
+
+
+def _stop_all_async_loggers():
+    for instance in list(_async_logger_instances.values()):
+        instance.stop()
+    _async_logger_instances.clear()
+
+
+atexit.register(_stop_all_async_loggers)
+
 
 class AsyncLoggerFile:
     def __init__(self, name, file=None, backup_count=None) -> None:
+        self.name = name
         self.log = logging.getLogger(name)
-        self.log.setLevel(logging.INFO)
+        self.log.setLevel(logging.DEBUG)
         self.log.propagate = False
 
-        existing_listener = getattr(self.log, "_queue_listener", None)
-        if existing_listener is not None:
-            existing_listener.stop()
-            delattr(self.log, "_queue_listener")
+        existing = _async_logger_instances.get(name)
+        if existing is not None:
+            existing.stop()
 
         for handler in self.log.handlers[:]:
             self.log.removeHandler(handler)
@@ -455,23 +525,23 @@ class AsyncLoggerFile:
         self._file_handler = None
 
         if file:
-            log_file = os.path.join(os.getcwd(), "log", file)
-            self._file_handler = DailyDatedFileHandler(
+            log_file = os.path.join(os.getcwd(), 'log', file)
+            self._file_handler = DailyPatternTimedRotatingFileHandler(
                 log_file,
+                when='midnight',
                 backupCount=backup_count if backup_count is not None else settings.log_ipc_preserve,
             )
-            self._file_handler.setFormatter(UTCFormatter("[%(asctime)s] [%(levelname)s] [%(threadName)s]: %(message)s"))
-            self._file_handler.setLevel(logging.INFO)
+            self._file_handler.setFormatter(UTCFormatter('[%(asctime)s] [%(levelname)s] [%(threadName)s]: %(message)s'))
+            self._file_handler.setLevel(logging.DEBUG)
 
             log_queue = queue.SimpleQueue()
             queue_handler = QueueHandler(log_queue)
-            queue_handler.setLevel(logging.INFO)
+            queue_handler.setLevel(logging.DEBUG)
             self.log.addHandler(queue_handler)
 
             self._listener = QueueListener(log_queue, self._file_handler, respect_handler_level=True)
             self._listener.start()
-            self.log._queue_listener = self._listener
-            atexit.register(self.stop)
+            _async_logger_instances[name] = self
 
         self.log.info(f"###### {name} logger started ######")
 
@@ -484,8 +554,8 @@ class AsyncLoggerFile:
             self._file_handler.close()
             self._file_handler = None
 
-        if hasattr(self.log, "_queue_listener"):
-            delattr(self.log, "_queue_listener")
+        if _async_logger_instances.get(self.name) is self:
+            del _async_logger_instances[self.name]
 
     def debug(self, message, args=None):
         if args is not None:
@@ -521,9 +591,4 @@ class AsyncLoggerFile:
         else:
             self.log.critical(message, exc_info=exc_info)
 
-# glogger = Logger('api', 'api.log')
-# glogger = LoggerFastAPI('api.log')
 glogger = None
-
-
-
