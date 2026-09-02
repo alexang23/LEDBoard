@@ -221,14 +221,14 @@ class EndpointFilter(logging.Filter):
 class Logger:
     def __init__(self, name, file = None, event_only = False) -> None:
         stream_format = (
-            '%(log_color)s[%(asctime)s] [%(levelname)s] [%(threadName)s]: %(message)s'
+            '%(log_color)s[%(asctime)s] [%(levelname)s] [%(thread)d]: %(message)s'
             if event_only
-            else '%(log_color)s[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(event)s] [%(user)s]: %(message)s'
+            else '%(log_color)s[%(asctime)s] [%(levelname)s] [%(thread)d] [%(event)s] [%(user)s]: %(message)s'
         )
         file_format = (
-            '[%(asctime)s] [%(levelname)s] [%(threadName)s]: %(message)s'
+            '[%(asctime)s] [%(levelname)s] [%(thread)d]: %(message)s'
             if event_only
-            else '[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(event)s] [%(user)s]: %(message)s'
+            else '[%(asctime)s] [%(levelname)s] [%(thread)d] [%(event)s] [%(user)s]: %(message)s'
         )
         colored_formatter = ColoredFormatter(
             # '%(log_color)s[%(asctime)s] [%(levelname)s] [%(event)s] [%(user)s] [%(module)s]:[%(lineno)d]: %(message)s',
@@ -321,7 +321,7 @@ class LoggerFastAPI:
 
         colored_formatter = ColoredFormatter(
             # '%(log_color)s[%(asctime)s] [%(levelname)s] [%(event)s] [%(user)s] [%(module)s]:[%(lineno)d]: %(message)s',
-            '%(log_color)s[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(event)s] [%(user)s]: %(message)s',
+            '%(log_color)s[%(asctime)s] [%(levelname)s] [%(thread)d] [%(event)s] [%(user)s]: %(message)s',
             log_colors={
                 'DEBUG':    'cyan',
                 'INFO':     'green',
@@ -331,7 +331,7 @@ class LoggerFastAPI:
                 'SERIOUS': 'red,bg_white',
             }
         )
-        formatter = SystemLogFormatter('[%(asctime)s] [%(levelname)s] [%(threadName)s] [%(event)s] [%(user)s]: %(message)s')
+        formatter = SystemLogFormatter('[%(asctime)s] [%(levelname)s] [%(thread)d] [%(event)s] [%(user)s]: %(message)s')
 
         self.log = {}
 
@@ -424,7 +424,7 @@ class LoggerFile:
     def __init__(self, name, file = None) -> None:
         colored_formatter = ColoredFormatter(
             # '%(log_color)s[%(asctime)s] [%(levelname)s] [%(event)s] [%(user)s] [%(module)s]:[%(lineno)d]: %(message)s',
-            '%(log_color)s[%(asctime)s] [%(threadName)s] : %(message)s',
+            '%(log_color)s[%(asctime)s] [%(thread)d] : %(message)s',
             log_colors={
                 'DEBUG':    'cyan',
                 'INFO':     'green',
@@ -434,7 +434,7 @@ class LoggerFile:
                 'SERIOUS': 'red,bg_white',
             }
         )
-        formatter = SystemLogFormatter('[%(asctime)s] [%(threadName)s] : %(message)s')
+        formatter = SystemLogFormatter('[%(asctime)s] [%(thread)d] : %(message)s')
 
         self.log = logging.getLogger(name)
         for handler in self.log.handlers[:]:
@@ -531,7 +531,7 @@ class AsyncLoggerFile:
                 when='midnight',
                 backupCount=backup_count if backup_count is not None else settings.log_ipc_preserve,
             )
-            self._file_handler.setFormatter(UTCFormatter('[%(asctime)s] [%(levelname)s] [%(threadName)s]: %(message)s'))
+            self._file_handler.setFormatter(UTCFormatter('[%(asctime)s] [%(levelname)s] [%(thread)d]: %(message)s'))
             self._file_handler.setLevel(logging.DEBUG)
 
             log_queue = queue.SimpleQueue()
