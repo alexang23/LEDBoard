@@ -19,6 +19,7 @@ from aiomqtt.client import Properties, ProtocolVersion, mqtt
 import gyro_watchdog
 from config import settings
 from global_log import LoggerFile
+import logging
 
 DEFAULT_MAX_RECEIVE_QUEUE_SIZE = 1000
 MAX_RECONNECT_DELAY = 30
@@ -58,6 +59,7 @@ class MQTTSvc(Thread):
         self.logger = logger
         self.logger_heartbeat = LoggerFile("heartbeat", "heartbeat.log")
         self.logger_mqtt = LoggerFile("mqtt", "mqtt.log")
+        self.logger_mqtt.log.setLevel(logging.INFO)
         self.logger_mem = LoggerFile("mqtt_mem", "mqtt_mem.log")
 
         self.svr_enable = settings.MQTT_ENABLE
