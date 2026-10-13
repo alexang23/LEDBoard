@@ -520,13 +520,14 @@ class MQTTSvc(Thread):
         try:
             with self._queue_lock:
                 queue_len = len(self.receive_queue)
-            self.logger_mem.info(
-                f"mqtt : memory_check : receive_queue = {queue_len}, "
-                f"dropped_receive_queue = {self.dropped_receive_queue_count}, "
-                f"max_receive_queue = {self.max_receive_queue_size}"
-            )
+            if queue_len > 0 or self.dropped_receive_queue_count > 0:
+                self.logger_mem.info(
+                    f"receive_queue = {queue_len}, "
+                    f"dropped_receive_queue = {self.dropped_receive_queue_count}, "
+                    f"max_receive_queue = {self.max_receive_queue_size}"
+                )
         except Exception as err:
-            self.logger_mem.error(f"mqtt : memory_check : {str(err)}")
+            self.logger_mem.error(f"memory_check : {str(err)}")
 
     async def heartbeat(self):
         with self._queue_lock:
