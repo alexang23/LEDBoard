@@ -368,6 +368,9 @@ class MQTTSvc(Thread):
             return
 
         payload = json.loads(raw_payload)
+        if 'port_no' in payload and payload['port_no'] > settings.LOAD_PORT_NUMBER:
+            self.logger.info(f"######## exclude ######## (port_no={payload['port_no']} > LOAD_PORT_NUMBER={settings.LOAD_PORT_NUMBER})")
+            return
         port_no = payload['port_no']
         copy_payload = payload.copy()
         copy_payload['type'] = 3
@@ -384,6 +387,9 @@ class MQTTSvc(Thread):
     async def _handle_response_message(self, topic, qos, raw_payload):
         self.logger.info(f"mqtt : on_message topic={topic}, qos={qos}, data={raw_payload}")
         payload = json.loads(raw_payload)
+        if 'port_no' in payload and payload['port_no'] > settings.LOAD_PORT_NUMBER:
+            self.logger.info(f"######## exclude ######## (port_no={payload['port_no']} > LOAD_PORT_NUMBER={settings.LOAD_PORT_NUMBER})")
+            return
         self._route_to_device(payload)
 
     async def _handle_ipc_message(self, topic, qos, raw_payload, retain):
@@ -391,6 +397,10 @@ class MQTTSvc(Thread):
         if retain:
             return
         payload = json.loads(raw_payload)
+
+        if 'port_no' in payload and payload['port_no'] > settings.LOAD_PORT_NUMBER:
+            self.logger.info(f"######## exclude ######## (port_no={payload['port_no']} > LOAD_PORT_NUMBER={settings.LOAD_PORT_NUMBER})")
+            return
 
         if 'type' in payload:
             if payload['type'] in [1, 3, 5]:
@@ -444,6 +454,10 @@ class MQTTSvc(Thread):
         self.logger.info(
             f"corr_id={correlation.CorrelationData}, reply_to={correlation.ResponseTopic}, payload={payload}"
         )
+
+        if 'port_no' in payload and payload['port_no'] > settings.LOAD_PORT_NUMBER:
+            self.logger.info(f"######## exclude ######## (port_no={payload['port_no']} > LOAD_PORT_NUMBER={settings.LOAD_PORT_NUMBER})")
+            return
 
         if ("cmd" not in payload) or ("port_no" not in payload):
             return
