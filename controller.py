@@ -5,7 +5,7 @@ import traceback
 from config import settings
 
 from mqtt_svc2 import MQTTSvc
-from device import LEDButton
+from device2 import LEDButton
 import gyro_watchdog
 from global_log import LoggerFile
 
