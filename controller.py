@@ -5,7 +5,12 @@ import traceback
 from config import settings
 
 from mqtt_svc2 import MQTTSvc
-from device2 import LEDButton
+
+if settings.DEVICE_TYPE == 1:
+    from device_io import LEDButton
+else:
+    from device2 import LEDButton
+
 import gyro_watchdog
 from global_log import LoggerFile
 
