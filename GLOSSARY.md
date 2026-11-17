@@ -38,6 +38,10 @@ _Avoid_: led, light
 The visual state of a single LED: None, Green, Blue, Red, Flashed Green, Flashed Blue, or Flashed Red.
 _Avoid_: color used alone
 
+**LED state code**:
+The 4-character `led_states` string describing one port's whole display: one LED-state digit (0-6) per Port LED, in Switch, RFID, E84, Port order.
+_Avoid_: led_states used alone, color code
+
 **LED frame**:
 The fixed-length serial payload sent to the physical board that encodes the state of every port LED as ASCII bits.
 _Avoid_: serial packet

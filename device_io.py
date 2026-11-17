@@ -366,9 +366,23 @@ class LEDButton(threading.Thread):
         self.blink_color = {4:'Green', 5:'Blue', 6:'Red'}
         self._blink = {}
         self._blink_lock = threading.Lock()
+        # Last applied LED state per (led_name, port_no_led), recorded by
+        # data_process (the single funnel for MQTT type-6 and HTTP commands).
+        # Key absent means the LED has never been commanded (state 0/None).
+        self.applied = {}
+        self._applied_lock = threading.Lock()
 
     def led2text(self, data_orig: bytes, encoding: str = 'utf-8') -> str:
         return led2text(data_orig, encoding, self.logger)
+
+    def get_port_states(self, port_no_led):
+        """
+        Return the 4-digit LED state code for one board-local port, one
+        LED-state digit per Port LED in Switch, RFID, E84, Port order.
+        Digits never commanded read as 0 (None).
+        """
+        with self._applied_lock:
+            return ''.join(str(self.applied.get((self.led_idx[led_no], port_no_led), 0)) for led_no in (1, 2, 3, 4))
 
 
     def cmd(self, data):
@@ -472,6 +486,11 @@ class LEDButton(threading.Thread):
 
                 led_name = self.led_idx[payload['led_no']]
                 led_state = payload['led_state']
+                # Record before acting so GET /api/led/state/all sees the
+                # requested state (including flashed digits 4-6) even when
+                # the serial write below fails.
+                with self._applied_lock:
+                    self.applied[(led_name, port_no_led)] = led_state
                 if led_state in self.blink_color: # Flashed states: blink the requested color
                     self.start_blink(led_name, port_no_led, self.blink_color[led_state])
                 else:

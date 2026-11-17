@@ -15,6 +15,7 @@ import sys
 import os
 
 from controller import Controller
+from routers.led import router as led_router
 
 tsc = Controller(Logger('ipc', 'ipc.log'))
 
@@ -38,6 +39,8 @@ async def _lifespan(app: FastAPI):
     app.state.glogger.info("########## disconnect done, shutdown fastapi app now")
 
 app = FastAPI(lifespan=_lifespan)
+
+app.include_router(led_router)
 
 origins = [
     settings.CLIENT_ORIGIN,
