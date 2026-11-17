@@ -14,7 +14,6 @@ import collections
 import sys
 import os
 
-from routers import update
 from controller import Controller
 
 tsc = Controller(Logger('ipc', 'ipc.log'))
@@ -52,8 +51,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-app.include_router(update.router, tags=['Update'], prefix='/api/update')
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
