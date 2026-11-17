@@ -15,8 +15,9 @@ The tests are fully mocked: no broker and no serial device are required.
 Coverage (per the agreed design):
 - full valid matrix: led_no 1..4 (Switch/RFID/E84/Port) x led_state 0..3
   (None/Green/Blue/Red) x port_no 1..2 on board 1
-- documented current behaviour: flashed states (4..6) produce NO frame,
-  because LEDButton.color has no "Flashed ..." entries
+- flashed states (4..6) register a blink on the requested LED in the
+  requested color (Green/Blue/Red); blink ticks alternate the color frame
+  with a None frame, and a solid command cancels the active blink
 - invalid input rejection in data_process
 - inbound dispatch: retain skip, port_no > LOAD_PORT_NUMBER skip,
   non-type-6 skip, missing-"type" permissiveness, and the fact that a
@@ -74,6 +75,9 @@ STATE_COLOR = {
     3: [49, 48, 48],  # Red
 }
 LED_NAME = {1: 'Switch', 2: 'RFID', 3: 'E84', 4: 'Port'}
+# Blink colors for flashed states reuse the solid color triples.
+BLINK_COLOR = {4: STATE_COLOR[1], 5: STATE_COLOR[2], 6: STATE_COLOR[3]}  # Green/Blue/Red
+NONE_COLOR = STATE_COLOR[0]
 
 
 def led_control_payload(port_no=1, led_no=1, led_state=1):
@@ -123,17 +127,68 @@ def test_type6_valid_matrix_writes_one_frame(board, port_no, led_no, led_state):
 
 @pytest.mark.parametrize('led_no', [1, 2, 3, 4])
 @pytest.mark.parametrize('led_state', [4, 5, 6])
-def test_type6_flashed_states_produce_no_frame_documented_behaviour(board, led_no, led_state):
-    # LEDButton.set_led looks the state name up in self.color, which only
-    # contains None/Green/Blue/Red. "Flashed ..." states therefore raise a
-    # KeyError inside set_led (swallowed by its try/except) and no frame is
-    # written. This test pins that current behaviour; if flashing support is
-    # ever added to the AEI path, this test should be updated to assert the
-    # expected blink behaviour instead.
+def test_type6_flashed_state_starts_blink(board, led_no, led_state):
+    # Flashed states register a blink on the requested LED in the requested
+    # color (4=Green, 5=Blue, 6=Red). No frame is written until the blinker
+    # ticks; the first tick writes the color, the second the off phase.
     result = board.data_process(led_control_payload(1, led_no, led_state))
 
     assert result is True
-    assert board.device.writes == []
+    key = (LED_NAME[led_no], 1)
+    assert list(board._blink) == [key]
+    assert board._blink[key] == {'color': {4: 'Green', 5: 'Blue', 6: 'Red'}[led_state], 'on': True}
+
+    board._blink_tick()
+    board._blink_tick()
+
+    func_bit = FUNC_BITS_PORT1[LED_NAME[led_no]]
+    assert board.device.writes == [
+        ['C', func_bit, BLINK_COLOR[led_state]],
+        ['C', func_bit, NONE_COLOR],
+    ]
+
+
+def test_type6_flashed_state_on_second_port_blinks_independently(board):
+    result = board.data_process(led_control_payload(port_no=2, led_no=4, led_state=5))
+
+    assert result is True
+    assert list(board._blink) == [('Port', 2)]
+    assert board._blink[('Port', 2)] == {'color': 'Blue', 'on': True}
+
+    board._blink_tick()
+
+    assert board.device.writes == [['C', FUNC_BITS_PORT2['Port'], BLINK_COLOR[5]]]
+
+
+def test_type6_solid_state_cancels_active_blink(board):
+    board.data_process(led_control_payload(1, 4, 4))  # Port blink Green
+    board._blink_tick()
+
+    result = board.data_process(led_control_payload(1, 4, 3))  # Port solid Red
+
+    assert result is True
+    assert board._blink == {}
+    assert board.device.writes[-1] == ['C', FUNC_BITS_PORT1['Port'], STATE_COLOR[3]]
+
+
+def test_type6_flashed_state_replaces_active_blink_color(board):
+    board.data_process(led_control_payload(1, 3, 4))  # E84 blink Green
+    board._blink_tick()
+
+    result = board.data_process(led_control_payload(1, 3, 6))  # E84 blink Red
+
+    assert result is True
+    assert board._blink == {('E84', 1): {'color': 'Red', 'on': True}}
+
+
+def test_type6_solid_command_on_other_led_keeps_blink(board):
+    board.data_process(led_control_payload(1, 4, 4))  # Port blink Green
+    board._blink_tick()
+
+    result = board.data_process(led_control_payload(1, 3, 2))  # E84 solid Blue
+
+    assert result is True
+    assert ('Port', 1) in board._blink
 
 
 @pytest.mark.parametrize('led_no', [0, 5, 6])

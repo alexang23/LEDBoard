@@ -363,6 +363,7 @@ class LEDButton(threading.Thread):
         self.color = {'Red':[49, 48, 48], 'Green':[48, 49, 48], 'Blue':[48, 48, 49], 'None':[48, 48, 48]}
         self.led_idx = {1:'Switch', 2:'RFID', 3:'E84', 4:'Port'}
         self.led_state = {0:'None', 1:'Green', 2:'Blue', 3:'Red', 4:'Flashed Green', 5:'Flashed Blue', 6:'Flashed Red'}
+        self.blink_color = {4:'Green', 5:'Blue', 6:'Red'}
         self._blink = {}
         self._blink_lock = threading.Lock()
 
@@ -399,42 +400,51 @@ class LEDButton(threading.Thread):
 
     def set_led(self, fname, port_no, color, data=None, from_blinker=False):
         try:
-            if fname == 'Port' and not from_blinker:
-                self.stop_blink(port_no)
+            if not from_blinker:
+                # A solid (non-blinker) command overrides any active blink
+                # on the same LED/port.
+                self.stop_blink(fname, port_no)
             data = ['C', self.func[f"{fname}{port_no}"], self.color[color]]
             self.device.write(data)
         except Exception as err:
             self.logger.error(f"board {self.board}: {str(err)}")
 
-    def start_blink(self, port_no_led):
+    def start_blink(self, fname, port_no_led, color='Green'):
         try:
             with self._blink_lock:
-                self._blink[port_no_led] = True
+                self._blink[(fname, port_no_led)] = {'color': color, 'on': True}
         except Exception as err:
             self.logger.error(f"board {self.board}: {str(err)}")
 
-    def stop_blink(self, port_no_led):
+    def stop_blink(self, fname, port_no_led):
         try:
             with self._blink_lock:
-                self._blink.pop(port_no_led, None)
+                self._blink.pop((fname, port_no_led), None)
         except Exception as err:
             self.logger.error(f"board {self.board}: {str(err)}")
+
+    def _blink_tick(self):
+        try:
+            with self._blink_lock:
+                leds = list(self._blink.items())
+            for key, state in leds:
+                with self._blink_lock:
+                    current = self._blink.get(key)
+                    if current is not state:
+                        continue
+                fname, port_no_led = key
+                self.set_led(fname, port_no_led, state['color'] if state['on'] else 'None', from_blinker=True)
+                with self._blink_lock:
+                    current = self._blink.get(key)
+                    if current is state:
+                        current['on'] = not current['on']
+        except Exception as err:
+            self.logger.error(f"board {self.board}: blink error {str(err)}")
 
     def _blink_loop(self):
         while not self.stop:
             time.sleep(0.5)
-            try:
-                with self._blink_lock:
-                    ports = list(self._blink.items())
-                for port_no_led, on in ports:
-                    if port_no_led not in self._blink:
-                        continue
-                    self.set_led('Port', port_no_led, 'Green' if on else 'None', from_blinker=True)
-                    with self._blink_lock:
-                        if port_no_led in self._blink:
-                            self._blink[port_no_led] = not on
-            except Exception as err:
-                self.logger.error(f"board {self.board}: blink error {str(err)}")
+            self._blink_tick()
 
     def data_process(self, payload):
         try:
@@ -460,7 +470,12 @@ class LEDButton(threading.Thread):
                 if payload['led_state'] not in range(0, 7):
                     return
 
-                self.set_led(self.led_idx[payload['led_no']], port_no_led, self.led_state[payload['led_state']])
+                led_name = self.led_idx[payload['led_no']]
+                led_state = payload['led_state']
+                if led_state in self.blink_color: # Flashed states: blink the requested color
+                    self.start_blink(led_name, port_no_led, self.blink_color[led_state])
+                else:
+                    self.set_led(led_name, port_no_led, self.led_state[led_state])
             
             # except Exception as err:
             #     self.logger.error(f"device : data_process : {str(err)}")
@@ -521,7 +536,7 @@ class LEDButton(threading.Thread):
                 if payload['process_state'] == 1:
                     self.set_led('Port', port_no_led, 'Blue')
                 elif payload['process_state'] == 2:
-                    self.start_blink(port_no_led)
+                    self.start_blink('Port', port_no_led)
                 elif payload['port_state'] == 128 or payload['code_id'] == 128 or len(payload['alarm_text']) > 0 or payload['eqp_state'] == 1: # Alarm
                     self.set_led('Port', port_no_led, 'Red')
                     print('###### 0-3-128-0')
