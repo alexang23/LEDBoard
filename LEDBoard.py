@@ -14,7 +14,7 @@ import collections
 import sys
 import os
 
-from routers import user, auth, info, update, port
+from routers import update
 from controller import Controller
 
 tsc = Controller(Logger('ipc', 'ipc.log'))
@@ -53,12 +53,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router, tags=['Auth'], prefix='/api/auth')
-app.include_router(user.router, tags=['User'], prefix='/api/user')
-app.include_router(port.router, tags=['Port'], prefix='/api/port')
 app.include_router(update.router, tags=['Update'], prefix='/api/update')
-# app.include_router(log.router, tags=['Log'], prefix='/api/log')
-app.include_router(info.router, tags=['Info'], prefix='/api/info')
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):

@@ -6,8 +6,6 @@ import time
 import collections
 import re
 import traceback
-# from models.server import Server
-# from database import get_db
 
 #from global_variables import alarm_queue, logger
 #from global_variables import logger
@@ -348,7 +346,7 @@ class MQTTSvc(Thread):
             self.mqttc.loop_start()
             
             
-            # db = next(get_db())
+            # (db access removed)
             # webapi_server = db.query(Server).filter(Server.name == 'WebAPI Server').first()
             
             # if webapi_server :

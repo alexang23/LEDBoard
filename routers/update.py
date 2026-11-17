@@ -2,14 +2,8 @@ from fastapi import File, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 from datetime import datetime
-from auth import oauth2, schemas
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi import BackgroundTasks
-from database import get_db
-from sqlalchemy.orm import Session
-from models.user import User #, Permission, AccountType, AccountTypePermission
-# from auth import utils
-# from sqlalchemy import or_
 from global_log import glogger
 from config import Settings, settings
 from dotenv import set_key

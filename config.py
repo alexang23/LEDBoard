@@ -12,34 +12,6 @@
 
 # from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# class Settings(BaseSettings):
-#     DB_HOST:str = 'env-db.com'
-#     DB_PORT:int = 3306
-#     DB_USER:str = 'root'
-#     DB_PASS:str = 'mypassword'
-#     APP_DEBUG:bool = False
-#     LOG_LEVEL:str = 'error'
-
-#     LEDBOARD_RESET:int = 1
-#     LEDBOARD_MODE:int = 2
-#     LEDBOARD_MANUAL:int = 3
-    
-#     model_config = SettingsConfigDict(env_file='config.ini', env_file_encoding='utf-8')
-
-# # Create an instance of the Settings class
-# # settings = Settings(_env_file='.env', _env_file_encoding='utf-8')
-# settings = Settings()
-
-# # Usage Example
-# if __name__ == "__main__":
-#     try:
-#         # Access the settings
-#         print(f"DB_HOST: {settings.DB_HOST}")
-#         print(f"DB_PORT: {settings.DB_PORT}")
-#         print(f"APP_DEBUG: {settings.APP_DEBUG}")
-#     except ValueError as e:
-#         print(f"Configuration error: {e}")
-
 from pydantic import BaseSettings
 
 class Settings(BaseSettings):
