@@ -236,6 +236,7 @@ class MQTTSvc(Thread):
             self.mqttc = client
             await client.subscribe(self.topic, settings.MQTT_QOS)
             await client.subscribe(f"{self.topic}/Request", settings.MQTT_QOS)
+            await client.subscribe(f"{self.topic}/AEI", settings.MQTT_QOS)
             await client.subscribe(self.topic_server, settings.MQTT_QOS)
             await client.subscribe(f"{self.topic_server}/Process", settings.MQTT_QOS)
             await client.subscribe(f"{self.topic_server}/LRC/response", settings.MQTT_QOS)
@@ -440,6 +441,23 @@ class MQTTSvc(Thread):
 
         self._route_to_device(payload)
 
+    async def _handle_aei_message(self, topic, qos, raw_payload, retain):
+        self.logger.info(f"mqtt : on_message topic={topic}, qos={qos}, retain={retain}, data={raw_payload}")
+        if retain:
+            return
+        payload = json.loads(raw_payload)
+
+        if 'port_no' in payload and payload['port_no'] > settings.LOAD_PORT_NUMBER:
+            self.logger.info(f"######## exclude ######## (port_no={payload['port_no']} > LOAD_PORT_NUMBER={settings.LOAD_PORT_NUMBER})")
+            return
+
+        if 'type' in payload:
+            if payload['type'] != 6:
+                self.logger.info(f"######## exclude ########")
+                return
+
+        self._route_to_device(payload)
+
     async def _handle_request_message(self, raw_payload, properties):
         correlation = self._get_correlation(properties)
         if correlation is None:
@@ -494,6 +512,8 @@ class MQTTSvc(Thread):
                 await self._handle_response_message(topic, qos, raw_payload)
             elif topic.endswith("Request"):
                 await self._handle_request_message(raw_payload, properties)
+            elif topic.endswith("AEI"):
+                await self._handle_aei_message(topic, qos, raw_payload, retain)
         except Exception as err:
             self.logger.error(f"mqtt : on_message : {str(err)}")
 

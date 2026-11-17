@@ -94,7 +94,7 @@ class Settings(BaseSettings):
 
 	DEVICE_ID:str ='E84-IPC'
 	DEVICE_NAME:str ='E84-IPC'
-	DEVICE_TYPE:int = 0
+	DEVICE_TYPE:int = 0 # 0:GYRO-300, 1:AEI
 	LOAD_PORT_NUMBER:int =4
 
 	LOAD_PORT_1_ENABLE:bool = True
