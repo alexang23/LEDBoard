@@ -12,6 +12,10 @@ POST enqueues the same type-6 LED control payloads the MQTT "IPC/AEI" topic
 carries (via LEDButton.on_notify), so HTTP and MQTT share one LED-control
 path; a success response means the commands were accepted, not that the
 board has physically echoed them yet.
+
+GET /api/led/state/all reports the last commanded state per LED, recorded
+by LEDButton.set_led / start_blink for every command path (AEI type-6 and
+the RFID/E84 business logic) - not the board's physical serial echo.
 """
 
 from fastapi import APIRouter, Request
@@ -71,8 +75,8 @@ def _port_no_led(port_no):
     return port_no - 2 if port_no in BOARD2_PORTS else port_no
 
 
-@router.post('/state')
-async def set_led_state(request: Request, body: LedStateRequest):
+@router.post('/set/port')
+async def set_port_led_states(request: Request, body: LedStateRequest):
     if settings.DEVICE_TYPE != AEI_DEVICE_TYPE:
         return _ng(403, 'AEI mode is not enabled')
 

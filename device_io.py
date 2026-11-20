@@ -361,14 +361,20 @@ class LEDButton(threading.Thread):
         self.btntime = {1:time.time(), 2:time.time(), 3:time.time(), 4:time.time(), 5:time.time(), 6:time.time(), 7:time.time(), 8:time.time()}
         self.func = {'Port1':2, 'Port2':6, 'E841':18, 'E842':22, 'RFID1':26, 'RFID2':30, 'Switch1':10, 'Switch2':14}
         self.color = {'Red':[49, 48, 48], 'Green':[48, 49, 48], 'Blue':[48, 48, 49], 'None':[48, 48, 48]}
+        # Color name -> LED-state digit for solid (non-blinker) commands.
+        self.solid_state = {'None': 0, 'Green': 1, 'Blue': 2, 'Red': 3}
         self.led_idx = {1:'Switch', 2:'RFID', 3:'E84', 4:'Port'}
         self.led_state = {0:'None', 1:'Green', 2:'Blue', 3:'Red', 4:'Flashed Green', 5:'Flashed Blue', 6:'Flashed Red'}
         self.blink_color = {4:'Green', 5:'Blue', 6:'Red'}
+        # Color name -> flashed LED-state digit, the inverse of blink_color.
+        self.blink_state = {v: k for k, v in self.blink_color.items()}
         self._blink = {}
         self._blink_lock = threading.Lock()
-        # Last applied LED state per (led_name, port_no_led), recorded by
-        # data_process (the single funnel for MQTT type-6 and HTTP commands).
-        # Key absent means the LED has never been commanded (state 0/None).
+        # Last commanded LED state per (led_name, port_no_led), recorded by
+        # set_led (solid commands) and start_blink (flashed digits 4-6) so
+        # every command path (AEI type-6 and the RFID/E84 business logic)
+        # feeds one record. Key absent means the LED has never been
+        # commanded (state 0/None).
         self.applied = {}
         self._applied_lock = threading.Lock()
 
@@ -418,6 +424,12 @@ class LEDButton(threading.Thread):
                 # A solid (non-blinker) command overrides any active blink
                 # on the same LED/port.
                 self.stop_blink(fname, port_no)
+                # Record before acting so GET /api/led/state/all sees the
+                # requested state even when the serial write below fails.
+                # Blinker writes are skipped: the active flash digit (4-6)
+                # stays recorded instead of the alternating on/off color.
+                with self._applied_lock:
+                    self.applied[(fname, port_no)] = self.solid_state[color]
             data = ['C', self.func[f"{fname}{port_no}"], self.color[color]]
             self.device.write(data)
         except Exception as err:
@@ -427,6 +439,10 @@ class LEDButton(threading.Thread):
         try:
             with self._blink_lock:
                 self._blink[(fname, port_no_led)] = {'color': color, 'on': True}
+            # Record the requested flash digit so GET /api/led/state/all
+            # reports a blinking LED as its flashed state (4-6).
+            with self._applied_lock:
+                self.applied[(fname, port_no_led)] = self.blink_state[color]
         except Exception as err:
             self.logger.error(f"board {self.board}: {str(err)}")
 
@@ -486,11 +502,9 @@ class LEDButton(threading.Thread):
 
                 led_name = self.led_idx[payload['led_no']]
                 led_state = payload['led_state']
-                # Record before acting so GET /api/led/state/all sees the
-                # requested state (including flashed digits 4-6) even when
-                # the serial write below fails.
-                with self._applied_lock:
-                    self.applied[(led_name, port_no_led)] = led_state
+                # set_led / start_blink record the applied state, so
+                # GET /api/led/state/all sees the requested state (including
+                # flashed digits 4-6) even when the serial write fails.
                 if led_state in self.blink_color: # Flashed states: blink the requested color
                     self.start_blink(led_name, port_no_led, self.blink_color[led_state])
                 else:

@@ -22,7 +22,7 @@ import pytest
 
 from config import settings
 from device_io import LEDButton
-from routers.led import LedStateRequest, get_all_led_states, set_led_state
+from routers.led import LedStateRequest, get_all_led_states, set_port_led_states
 
 
 # --- test doubles -----------------------------------------------------------
@@ -74,7 +74,7 @@ def request_aei(monkeypatch, board, board2):
 
 def post(request_aei, port_no=1, led_states='2356'):
     body = LedStateRequest(port_no=port_no, led_states=led_states)
-    return asyncio.run(set_led_state(request_aei, body))
+    return asyncio.run(set_port_led_states(request_aei, body))
 
 
 def get_all(request_aei):
@@ -249,8 +249,8 @@ def test_get_all_reflects_http_post(request_aei):
     post(request_aei)
 
     # Simulate the device thread draining its command queue: the applied
-    # state is recorded by data_process, so GET only reflects a POST after
-    # the device has consumed it.
+    # state is recorded by set_led/start_blink, so GET only reflects a
+    # POST after the device has consumed it.
     device = request_aei.app.state.tsc.device
     while device.cmd_queue:
         device.data_process(device.cmd_queue.popleft())
@@ -258,3 +258,53 @@ def test_get_all_reflects_http_post(request_aei):
     response = get_all(request_aei)
 
     assert response['Ports'][0] == {'port_no': 1, 'led_states': '2356'}
+
+
+# --- state reporting for business-logic (non-type-6) commands -----------------
+
+def test_get_all_reflects_business_logic_set_led(request_aei):
+    # The RFID/E84 handlers call set_led directly (device_io data_process
+    # type 0 / type 2); those writes must show up too.
+    tsc = request_aei.app.state.tsc
+    tsc.device.set_led('Switch', 1, 'Green')
+    tsc.device.set_led('RFID', 1, 'Green')
+    tsc.device.set_led('E84', 1, 'Blue')
+    tsc.device.set_led('Port', 1, 'Blue')
+
+    response = get_all(request_aei)
+
+    assert response['Ports'][0] == {'port_no': 1, 'led_states': '1122'}
+
+
+def test_get_all_blink_records_flashed_digit(request_aei):
+    # Business-logic start_blink (default Green, as in the Port Ready path)
+    # reports as its flashed digit, not as the alternating solid color.
+    tsc = request_aei.app.state.tsc
+    tsc.device.start_blink('Port', 2, 'Blue')
+
+    response = get_all(request_aei)
+
+    assert response['Ports'][1] == {'port_no': 2, 'led_states': '0005'}
+
+
+def test_get_all_blinker_writes_keep_flashed_digit(request_aei):
+    # The blink loop alternates color/None with from_blinker=True; those
+    # writes must not overwrite the recorded flash digit.
+    tsc = request_aei.app.state.tsc
+    tsc.device.data_process({'port_no': 1, 'type': 6, 'led_no': 4, 'led_state': 6})
+    tsc.device.set_led('Port', 1, 'Red', from_blinker=True)
+    tsc.device.set_led('Port', 1, 'None', from_blinker=True)
+
+    response = get_all(request_aei)
+
+    assert response['Ports'][0] == {'port_no': 1, 'led_states': '0006'}
+
+
+def test_get_all_solid_command_overrides_blink_digit(request_aei):
+    tsc = request_aei.app.state.tsc
+    tsc.device.start_blink('Port', 1, 'Green')
+    tsc.device.set_led('Port', 1, 'None')  # solid stop: no light
+
+    response = get_all(request_aei)
+
+    assert response['Ports'][0] == {'port_no': 1, 'led_states': '0000'}
