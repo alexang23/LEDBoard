@@ -405,6 +405,8 @@ class LEDButton(threading.Thread):
         data = OrderedDict()
         data['port_no'] = port_no
         data['dual_port'] = 0
+        # LED-traffic type code: 6 in AEI mode (DEVICE_TYPE=1), 4 otherwise.
+        data['type'] = 6 if settings.DEVICE_TYPE == 1 else 4
         data['ledboard_state'] = ledboard_state
         data['led_states'] = self.get_port_states(self._port_no_led(port_no))
         data['occurred_at'] = time.time()
@@ -684,7 +686,8 @@ class LEDButton(threading.Thread):
                 data['Server'] = True
             data['device_id'] = settings.DEVICE_ID
             data['board_id'] = board
-            data['type'] = 4
+            # LED-traffic type code: 6 in AEI mode (DEVICE_TYPE=1), 4 otherwise.
+            data['type'] = 6 if settings.DEVICE_TYPE == 1 else 4
             data['code_id'] = code
             data['sub_id'] = subcode
             data['msg_text'] = msg_text

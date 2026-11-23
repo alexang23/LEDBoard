@@ -381,6 +381,7 @@ class LEDButton(threading.Thread):
         port_no = 3 if self.board == 2 else 1
         data2['port_no'] = port_no
         data2['dual_port'] = 0
+        data2['type'] = 6 if settings.DEVICE_TYPE == 1 else 4
         data2['ledboard_state'] = settings.LEDBOARD_INITIAL
         data2['occurred_at'] = time.time()
         res_mqtt = self.mqtt_svc.publish(data2)
@@ -388,6 +389,7 @@ class LEDButton(threading.Thread):
         data = OrderedDict()
         data['port_no'] = port_no + 1
         data['dual_port'] = 0
+        data['type'] = 6 if settings.DEVICE_TYPE == 1 else 4
         data['ledboard_state'] = settings.LEDBOARD_INITIAL
         data['occurred_at'] = time.time()
         res_mqtt = self.mqtt_svc.publish(data)
@@ -733,6 +735,7 @@ class LEDButton(threading.Thread):
                     port_no = 3 if self.board == 2 else 1
                     data2['port_no'] = port_no
                     data2['dual_port'] = 0
+                    data2['type'] = 6 if settings.DEVICE_TYPE == 1 else 4
                     data2['ledboard_state'] = settings.LEDBOARD_INITIAL
                     data2['occurred_at'] = time.time()
                     res_mqtt = self.mqtt_svc.publish(data2)
@@ -740,6 +743,7 @@ class LEDButton(threading.Thread):
                     data1 = OrderedDict()
                     data1['port_no'] = port_no + 1
                     data1['dual_port'] = 0
+                    data1['type'] = 6 if settings.DEVICE_TYPE == 1 else 4
                     data1['ledboard_state'] = settings.LEDBOARD_INITIAL
                     data1['occurred_at'] = time.time()
                     res_mqtt = self.mqtt_svc.publish(data1)
@@ -755,6 +759,7 @@ class LEDButton(threading.Thread):
                         port_no = 3 if self.board == 2 else 1
                         data['port_no'] = port_no
                         data['dual_port'] = 0
+                        data['type'] = 6 if settings.DEVICE_TYPE == 1 else 4
                         data['ledboard_state'] = settings.LEDBOARD_RESET
                         data['occurred_at'] = time.time()
                         res_mqtt = self.mqtt_svc.publish(data)
@@ -769,6 +774,7 @@ class LEDButton(threading.Thread):
                         port_no = 3 if self.board == 2 else 1
                         data['port_no'] = port_no + 1
                         data['dual_port'] = 0
+                        data['type'] = 6 if settings.DEVICE_TYPE == 1 else 4
                         data['ledboard_state'] = settings.LEDBOARD_RESET
                         data['occurred_at'] = time.time()
                         res_mqtt = self.mqtt_svc.publish(data)
@@ -783,6 +789,7 @@ class LEDButton(threading.Thread):
                         port_no = 3 if self.board == 2 else 1
                         data['port_no'] = port_no
                         data['dual_port'] = 0
+                        data['type'] = 6 if settings.DEVICE_TYPE == 1 else 4
                         data['ledboard_state'] = settings.LEDBOARD_MODE
                         data['occurred_at'] = time.time()
                         res_mqtt = self.mqtt_svc.publish(data)
@@ -797,6 +804,7 @@ class LEDButton(threading.Thread):
                         port_no = 3 if self.board == 2 else 1
                         data['port_no'] = port_no + 1
                         data['dual_port'] = 0
+                        data['type'] = 6 if settings.DEVICE_TYPE == 1 else 4
                         data['ledboard_state'] = settings.LEDBOARD_MODE
                         data['occurred_at'] = time.time()
                         res_mqtt = self.mqtt_svc.publish(data)

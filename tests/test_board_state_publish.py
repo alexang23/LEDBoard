@@ -1,14 +1,16 @@
-"""Tests for led_states in outbound board state MQTT messages.
+"""Tests for led_states and type in outbound board state MQTT messages.
 
 Board state messages (initial status, reset-button press, mode-button
 press) are built by LEDButton._publish_board_state, which adds the port's
-4-digit LED state code (see device_io.LEDButton.get_port_states) alongside
+4-digit LED state code (see device_io.LEDButton.get_port_states) and the
+LED-traffic type code (6 in AEI mode, 4 in GYRO-300 mode) alongside
 ledboard_state. These tests use a stub mqtt_svc and an LEDButton with no
 serial hardware attached.
 """
 
 import threading
 
+from config import settings
 from device_io import LEDButton
 
 
@@ -43,7 +45,7 @@ def test_publish_board_state_carries_led_states():
     assert data['dual_port'] == 0
     assert data['ledboard_state'] == 10
     assert data['led_states'] == '2050'
-    assert list(data.keys()) == ['port_no', 'dual_port', 'ledboard_state', 'led_states', 'occurred_at']
+    assert list(data.keys()) == ['port_no', 'dual_port', 'type', 'ledboard_state', 'led_states', 'occurred_at']
 
 
 def test_led_states_defaults_to_zeros_when_never_commanded():
@@ -76,3 +78,30 @@ def test_returns_occurred_at_equal_to_published_value():
 
     (data,) = device.mqtt_svc.payloads
     assert data['occurred_at'] == occurred_at
+
+
+def test_board_state_type_is_6_in_aei_mode(monkeypatch):
+    monkeypatch.setattr(settings, 'DEVICE_TYPE', 1)
+    device = make_device(1)
+    device._publish_board_state(1, 10)
+
+    (data,) = device.mqtt_svc.payloads
+    assert data['type'] == 6
+
+
+def test_board_state_type_is_4_in_gyro_mode(monkeypatch):
+    monkeypatch.setattr(settings, 'DEVICE_TYPE', 0)
+    device = make_device(1)
+    device._publish_board_state(1, 10)
+
+    (data,) = device.mqtt_svc.payloads
+    assert data['type'] == 4
+
+
+def test_send_event_type_is_6_in_aei_mode(monkeypatch):
+    monkeypatch.setattr(settings, 'DEVICE_TYPE', 1)
+    device = make_device(1)
+    device.send_event(code=1, subcode=2, msg_text='test')
+
+    (data,) = device.mqtt_svc.payloads
+    assert data['type'] == 6

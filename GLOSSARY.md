@@ -17,15 +17,15 @@ _Avoid_: device type 0, IPC mode
 ### Messages
 
 **LED control message**:
-An inbound MQTT message carrying type 6 that sets one named LED on one port to one state.
+An inbound MQTT message carrying type 6 that sets one named LED on one port to one state. Type 6 is the LED-traffic code, shared with outbound board state and event messages in AEI mode.
 _Avoid_: type-6 message used alone, LED command
 
 **Board state message**:
-An outbound MQTT message the board publishes to report its `ledboard_state` (initial status, reset-button press, or mode-button press) together with the port's `led_states` LED state code.
+An outbound MQTT message the board publishes to report its `ledboard_state` (initial status, reset-button press, or mode-button press) together with the port's `led_states` LED state code and the LED-traffic type code (6 in AEI mode, 4 in GYRO-300 mode).
 _Avoid_: status message, heartbeat
 
 **Event message**:
-An outbound MQTT message (type 4) the board publishes to the server to report a device event.
+An outbound MQTT message (type 6 in AEI mode, type 4 in GYRO-300 mode) the board publishes to the server to report a device event.
 _Avoid_: log message
 
 ### LED display
