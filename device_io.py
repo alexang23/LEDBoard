@@ -390,6 +390,27 @@ class LEDButton(threading.Thread):
         with self._applied_lock:
             return ''.join(str(self.applied.get((self.led_idx[led_no], port_no_led), 0)) for led_no in (1, 2, 3, 4))
 
+    def _port_no_led(self, port_no):
+        """Board-local port number: board 2 ports (3, 4) map to (1, 2)."""
+        return port_no - 2 if self.board == 2 else port_no
+
+    def _publish_board_state(self, port_no, ledboard_state):
+        """Publish one board state message for global port_no.
+
+        Carries the port's 4-digit LED state code (led_states, see
+        get_port_states) alongside ledboard_state. Returns occurred_at so
+        button-press handlers can timestamp their debounce record with the
+        exact value that was published.
+        """
+        data = OrderedDict()
+        data['port_no'] = port_no
+        data['dual_port'] = 0
+        data['ledboard_state'] = ledboard_state
+        data['led_states'] = self.get_port_states(self._port_no_led(port_no))
+        data['occurred_at'] = time.time()
+        self.mqtt_svc.publish(data)
+        return data['occurred_at']
+
 
     def cmd(self, data):
         try:
@@ -399,21 +420,9 @@ class LEDButton(threading.Thread):
             self.logger.error(f"board {self.board}: {str(err)}")
 
     def initial_status(self):
-        
-        data2 = OrderedDict()
         port_no = 3 if self.board == 2 else 1
-        data2['port_no'] = port_no
-        data2['dual_port'] = 0
-        data2['ledboard_state'] = settings.LEDBOARD_INITIAL
-        data2['occurred_at'] = time.time()
-        res_mqtt = self.mqtt_svc.publish(data2)
-        
-        data = OrderedDict()
-        data['port_no'] = port_no + 1
-        data['dual_port'] = 0
-        data['ledboard_state'] = settings.LEDBOARD_INITIAL
-        data['occurred_at'] = time.time()
-        res_mqtt = self.mqtt_svc.publish(data)
+        self._publish_board_state(port_no, settings.LEDBOARD_INITIAL)
+        self._publish_board_state(port_no + 1, settings.LEDBOARD_INITIAL)
 
     def on_notify(self, data):
         self.cmd_queue.append(data)
@@ -782,8 +791,6 @@ class LEDButton(threading.Thread):
                     self.logger.info(f"board {self.board}: #### prev {bytes(self.status)}  # {self.led2text(bytes(self.status))}")
                     self.logger.info(f"board {self.board}: #### new  {buf}  # {self.led2text(buf)}")
 
-                data = OrderedDict()
-
                 if (res[0] == 67 and res[33] == 66) or \
                    (res[0] == 65 and \
                     res[33] == 66 and \
@@ -796,20 +803,9 @@ class LEDButton(threading.Thread):
                     res[26] == 48 and res[27] == 48 and res[28] == 48 and \
                     res[30] == 48 and res[31] == 48 and res[32] == 48):
 
-                    data2 = OrderedDict()
                     port_no = 3 if self.board == 2 else 1
-                    data2['port_no'] = port_no
-                    data2['dual_port'] = 0
-                    data2['ledboard_state'] = settings.LEDBOARD_INITIAL
-                    data2['occurred_at'] = time.time()
-                    res_mqtt = self.mqtt_svc.publish(data2)
-                    
-                    data1 = OrderedDict()
-                    data1['port_no'] = port_no + 1
-                    data1['dual_port'] = 0
-                    data1['ledboard_state'] = settings.LEDBOARD_INITIAL
-                    data1['occurred_at'] = time.time()
-                    res_mqtt = self.mqtt_svc.publish(data1)
+                    self._publish_board_state(port_no, settings.LEDBOARD_INITIAL)
+                    self._publish_board_state(port_no + 1, settings.LEDBOARD_INITIAL)
 
                     if res[1] == 48 and res[5] == 48 and res[9] == 48 and res[13] == 48 and \
                         res[17] == 48 and res[21] == 48 and res[25] == 48 and res[29] == 48 :
@@ -820,12 +816,7 @@ class LEDButton(threading.Thread):
                 if res[self.idx[1]] == 49 and self.status[self.idx[1]] == 48:
                     if time.time() - self.btntime[1] > settings.LEDBOARD_BUTTON_TIME:
                         port_no = 3 if self.board == 2 else 1
-                        data['port_no'] = port_no
-                        data['dual_port'] = 0
-                        data['ledboard_state'] = settings.LEDBOARD_RESET
-                        data['occurred_at'] = time.time()
-                        res_mqtt = self.mqtt_svc.publish(data)
-                        self.btntime[1] = data['occurred_at']
+                        self.btntime[1] = self._publish_board_state(port_no, settings.LEDBOARD_RESET)
                     
                     res[self.idx[1]] = 48
                     button = ['B', self.idx[1]]
@@ -834,12 +825,7 @@ class LEDButton(threading.Thread):
                 if res[self.idx[2]] == 49 and self.status[self.idx[2]] == 48:
                     if time.time() - self.btntime[2] > settings.LEDBOARD_BUTTON_TIME:
                         port_no = 3 if self.board == 2 else 1
-                        data['port_no'] = port_no + 1
-                        data['dual_port'] = 0
-                        data['ledboard_state'] = settings.LEDBOARD_RESET
-                        data['occurred_at'] = time.time()
-                        res_mqtt = self.mqtt_svc.publish(data)
-                        self.btntime[2] = data['occurred_at']
+                        self.btntime[2] = self._publish_board_state(port_no + 1, settings.LEDBOARD_RESET)
                     
                     res[self.idx[2]] = 48
                     button = ['B', self.idx[2]]
@@ -848,12 +834,7 @@ class LEDButton(threading.Thread):
                 if res[self.idx[3]] == 49 and self.status[self.idx[3]] == 48:
                     if time.time() - self.btntime[3] > settings.LEDBOARD_BUTTON_TIME:
                         port_no = 3 if self.board == 2 else 1
-                        data['port_no'] = port_no
-                        data['dual_port'] = 0
-                        data['ledboard_state'] = settings.LEDBOARD_MODE
-                        data['occurred_at'] = time.time()
-                        res_mqtt = self.mqtt_svc.publish(data)
-                        self.btntime[3] = data['occurred_at']
+                        self.btntime[3] = self._publish_board_state(port_no, settings.LEDBOARD_MODE)
                     
                     res[self.idx[3]] = 48
                     button = ['B', self.idx[3]]
@@ -862,12 +843,7 @@ class LEDButton(threading.Thread):
                 if res[self.idx[4]] == 49 and self.status[self.idx[4]] == 48:
                     if time.time() - self.btntime[4] > settings.LEDBOARD_BUTTON_TIME:
                         port_no = 3 if self.board == 2 else 1
-                        data['port_no'] = port_no + 1
-                        data['dual_port'] = 0
-                        data['ledboard_state'] = settings.LEDBOARD_MODE
-                        data['occurred_at'] = time.time()
-                        res_mqtt = self.mqtt_svc.publish(data)
-                        self.btntime[4] = data['occurred_at']
+                        self.btntime[4] = self._publish_board_state(port_no + 1, settings.LEDBOARD_MODE)
                         
                     res[self.idx[4]] = 48
                     button = ['B', self.idx[4]]

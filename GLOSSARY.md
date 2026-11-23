@@ -21,7 +21,7 @@ An inbound MQTT message carrying type 6 that sets one named LED on one port to o
 _Avoid_: type-6 message used alone, LED command
 
 **Board state message**:
-An outbound MQTT message the board publishes to report its `ledboard_state` (initial status, reset-button press, or mode-button press).
+An outbound MQTT message the board publishes to report its `ledboard_state` (initial status, reset-button press, or mode-button press) together with the port's `led_states` LED state code.
 _Avoid_: status message, heartbeat
 
 **Event message**:
