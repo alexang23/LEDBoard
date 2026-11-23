@@ -377,6 +377,13 @@ class LEDButton(threading.Thread):
         # commanded (state 0/None).
         self.applied = {}
         self._applied_lock = threading.Lock()
+        # Ports whose LED state code changed but whose LED update board
+        # state message is not yet published. Marked by set_led /
+        # start_blink (never by blinker toggle writes), drained by run()
+        # once a read-back frame from the physical board confirms the
+        # applied state, and cleared when the board echoes an all-off
+        # reset frame.
+        self._dirty_ports = set()
 
     def led2text(self, data_orig: bytes, encoding: str = 'utf-8') -> str:
         return led2text(data_orig, encoding, self.logger)
@@ -413,6 +420,32 @@ class LEDButton(threading.Thread):
         self.mqtt_svc.publish(data)
         return data['occurred_at']
 
+    def _mark_led_dirty(self, port_no_led):
+        """Record that port_no_led's LED state code changed and its LED
+        update board state message is pending until the board echoes it."""
+        with self._applied_lock:
+            self._dirty_ports.add(port_no_led)
+
+    def _flush_led_updates(self):
+        """Publish one LED update board state message per changed port.
+
+        Called from run() after a read-back frame from the physical board
+        was consumed, so each message reports a state the board echoed
+        (the merged frame already carries any pending command). One
+        message per changed port.
+        """
+        with self._applied_lock:
+            dirty, self._dirty_ports = self._dirty_ports, set()
+        for port_no_led in sorted(dirty):
+            port_no = port_no_led + 2 if self.board == 2 else port_no_led
+            self._publish_board_state(port_no, settings.LEDBOARD_LED)
+
+    def _clear_led_updates(self):
+        """Drop pending LED update messages (e.g. all-off reset echoed;
+        the reset's initial-status messages already report the state)."""
+        with self._applied_lock:
+            self._dirty_ports = set()
+
 
     def cmd(self, data):
         try:
@@ -441,6 +474,9 @@ class LEDButton(threading.Thread):
                 # stays recorded instead of the alternating on/off color.
                 with self._applied_lock:
                     self.applied[(fname, port_no)] = self.solid_state[color]
+                    # The LED state code changed: its LED update board
+                    # state message is pending until the board echoes it.
+                    self._dirty_ports.add(port_no)
             data = ['C', self.func[f"{fname}{port_no}"], self.color[color]]
             self.device.write(data)
         except Exception as err:
@@ -454,6 +490,11 @@ class LEDButton(threading.Thread):
             # reports a blinking LED as its flashed state (4-6).
             with self._applied_lock:
                 self.applied[(fname, port_no_led)] = self.blink_state[color]
+                # The LED state code changed to a flashed digit: its LED
+                # update board state message is pending until the board
+                # echoes it. Blinker toggle writes (from_blinker=True)
+                # never reach this, so blinking does not re-publish.
+                self._dirty_ports.add(port_no_led)
         except Exception as err:
             self.logger.error(f"board {self.board}: {str(err)}")
 
@@ -809,6 +850,10 @@ class LEDButton(threading.Thread):
                     port_no = 3 if self.board == 2 else 1
                     self._publish_board_state(port_no, settings.LEDBOARD_INITIAL)
                     self._publish_board_state(port_no + 1, settings.LEDBOARD_INITIAL)
+                    # The board reset: drop pending LED updates, the
+                    # initial-status messages above already report both
+                    # ports as all-off.
+                    self._clear_led_updates()
 
                     if res[1] == 48 and res[5] == 48 and res[9] == 48 and res[13] == 48 and \
                         res[17] == 48 and res[21] == 48 and res[25] == 48 and res[29] == 48 :
@@ -873,6 +918,10 @@ class LEDButton(threading.Thread):
                     self.device.write(button)
 
                 self.status = res[:]
+
+                # Echo confirmed: publish one LED update per port whose
+                # LED state code changed since the last published update.
+                self._flush_led_updates()
 
             except Exception as err:
                 self.logger.error(f"board {self.board}: error={str(err)}")
