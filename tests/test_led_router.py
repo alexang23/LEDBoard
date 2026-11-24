@@ -1,5 +1,7 @@
 """Tests for the /api/led WebAPI (AEI mode only).
 
+POST /api/led/set        sets one LED of one port by enqueuing a single
+                         type-6 payload (LEDButton.on_notify).
 POST /api/led/state      applies a 4-digit LED state code to one port by
                          enqueuing the same type-6 payloads MQTT carries
                          (LEDButton.on_notify).
@@ -22,7 +24,7 @@ import pytest
 
 from config import settings
 from device_io import LEDButton
-from routers.led import LedStateRequest, get_all_led_states, set_port_led_states
+from routers.led import LedSetRequest, LedStateRequest, get_all_led_states, set_led, set_port_led_states
 
 
 # --- test doubles -----------------------------------------------------------
@@ -79,6 +81,11 @@ def post(request_aei, port_no=1, led_states='2356'):
 
 def get_all(request_aei):
     return asyncio.run(get_all_led_states(request_aei))
+
+
+def set_led_state(request_aei, port_no=1, led_no=1, led_state=2):
+    body = LedSetRequest(port_no=port_no, led_no=led_no, led_state=led_state)
+    return asyncio.run(set_led(request_aei, body))
 
 
 # --- POST /api/led/state ------------------------------------------------------
@@ -153,6 +160,79 @@ def test_post_rejects_disconnected_device(monkeypatch, request_aei):
 @pytest.mark.parametrize('led_states', ['235', '23567', '2358', 'abcd', '2 56', ''])
 def test_post_rejects_invalid_led_states(request_aei, led_states):
     response = post(request_aei, led_states=led_states)
+
+    assert response == {'Success': False, 'State': 'NG', 'ErrorCode': 422, 'Message': 'invalid led_no/led_state'}
+    assert list(request_aei.app.state.tsc.device.cmd_queue) == []
+
+
+# --- POST /api/led/set --------------------------------------------------------
+
+def test_set_valid_enqueues_one_type6_payload(request_aei):
+    response = set_led_state(request_aei, port_no=3, led_no=4, led_state=6)
+
+    device = request_aei.app.state.tsc.device2
+    assert list(device.cmd_queue) == [{'port_no': 3, 'type': 6, 'led_no': 4, 'led_state': 6}]
+    assert response == {
+        'Success': True, 'State': 'OK', 'ErrorCode': 0, 'Message': '',
+        'Port': {'port_no': 3, 'led_no': 4, 'led_state': 6},
+    }
+
+
+def test_set_clears_to_none(request_aei):
+    response = set_led_state(request_aei, led_no=2, led_state=0)
+
+    assert response['Success'] is True
+    assert list(request_aei.app.state.tsc.device.cmd_queue) == [
+        {'port_no': 1, 'type': 6, 'led_no': 2, 'led_state': 0},
+    ]
+
+
+def test_set_rejects_non_aei_mode(monkeypatch, request_aei):
+    monkeypatch.setattr(settings, 'DEVICE_TYPE', 0)
+
+    response = set_led_state(request_aei)
+
+    assert response == {'Success': False, 'State': 'NG', 'ErrorCode': 403, 'Message': 'AEI mode is not enabled'}
+    assert list(request_aei.app.state.tsc.device.cmd_queue) == []
+
+
+@pytest.mark.parametrize('port_no', [0, 5, -1])
+def test_set_rejects_unknown_port_no(monkeypatch, request_aei, port_no):
+    monkeypatch.setattr(settings, 'LOAD_PORT_NUMBER', 4)
+
+    response = set_led_state(request_aei, port_no=port_no)
+
+    assert response == {'Success': False, 'State': 'NG', 'ErrorCode': 403, 'Message': 'port_no is not exist'}
+
+
+def test_set_rejects_board2_port_when_board2_disabled(monkeypatch, request_aei):
+    monkeypatch.setattr(settings, 'LEDBOARD2_ENABLE', False)
+
+    response = set_led_state(request_aei, port_no=4)
+
+    assert response == {'Success': False, 'State': 'NG', 'ErrorCode': 403, 'Message': 'port_no is not exist'}
+
+
+def test_set_rejects_disconnected_device(monkeypatch, request_aei):
+    monkeypatch.setattr(settings, 'LEDBOARD2_ENABLE', False)
+    request_aei.app.state.tsc.device = None
+
+    response = set_led_state(request_aei)
+
+    assert response == {'Success': False, 'State': 'NG', 'ErrorCode': 503, 'Message': 'device is not connected'}
+
+
+@pytest.mark.parametrize('led_no', [0, 5, -1])
+def test_set_rejects_invalid_led_no(request_aei, led_no):
+    response = set_led_state(request_aei, led_no=led_no, led_state=2)
+
+    assert response == {'Success': False, 'State': 'NG', 'ErrorCode': 422, 'Message': 'invalid led_no/led_state'}
+    assert list(request_aei.app.state.tsc.device.cmd_queue) == []
+
+
+@pytest.mark.parametrize('led_state', [-1, 7, 8])
+def test_set_rejects_invalid_led_state(request_aei, led_state):
+    response = set_led_state(request_aei, led_no=1, led_state=led_state)
 
     assert response == {'Success': False, 'State': 'NG', 'ErrorCode': 422, 'Message': 'invalid led_no/led_state'}
     assert list(request_aei.app.state.tsc.device.cmd_queue) == []
@@ -258,6 +338,19 @@ def test_get_all_reflects_http_post(request_aei):
     response = get_all(request_aei)
 
     assert response['Ports'][0] == {'port_no': 1, 'led_states': '2356'}
+
+
+def test_get_all_reflects_http_set(request_aei):
+    set_led_state(request_aei, port_no=3, led_no=3, led_state=5)
+
+    # Simulate the device thread draining its command queue.
+    device = request_aei.app.state.tsc.device2
+    while device.cmd_queue:
+        device.data_process(device.cmd_queue.popleft())
+
+    response = get_all(request_aei)
+
+    assert response['Ports'][2] == {'port_no': 3, 'led_states': '0050'}
 
 
 # --- state reporting for business-logic (non-type-6) commands -----------------
