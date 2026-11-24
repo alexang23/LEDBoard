@@ -1,7 +1,8 @@
 """WebAPI for the LED display in AEI mode.
 
 POST /api/led/set        set a single LED (led_no) of a port to led_state
-POST /api/led/state      apply a 4-digit LED state code to a single port
+POST /api/led/set/port   apply a 4-digit LED state code to a single port
+POST /api/led/state      report the LED state code of a single port
 GET  /api/led/state/all  report the LED state code of every live port
 
 Every route answers HTTP 200 with one envelope:
@@ -17,6 +18,7 @@ board has physically echoed them yet.
 GET /api/led/state/all reports the last commanded state per LED, recorded
 by LEDButton.set_led / start_blink for every command path (AEI type-6 and
 the RFID/E84 business logic) - not the board's physical serial echo.
+POST /api/led/state reads the same recorded state for a single port.
 """
 
 from fastapi import APIRouter, Request
@@ -48,6 +50,10 @@ class LedSetRequest(BaseModel):
     port_no: int
     led_no: int
     led_state: int
+
+
+class LedPortStateRequest(BaseModel):
+    port_no: int
 
 
 def _envelope(success, error_code=0, message=''):
@@ -121,6 +127,21 @@ async def set_led(request: Request, body: LedSetRequest):
     device.on_notify({'port_no': body.port_no, 'type': 6, 'led_no': body.led_no, 'led_state': body.led_state})
 
     return {**_envelope(True), 'Port': {'port_no': body.port_no, 'led_no': body.led_no, 'led_state': body.led_state}}
+
+
+@router.post('/state')
+async def get_led_state(request: Request, body: LedPortStateRequest):
+    if settings.DEVICE_TYPE != AEI_DEVICE_TYPE:
+        return _ng(403, 'AEI mode is not enabled')
+
+    if not _port_exists(body.port_no):
+        return _ng(403, 'port_no is not exist')
+
+    device = _device_for_port(request.app.state.tsc, body.port_no)
+    if device is None:
+        return _ng(503, 'device is not connected')
+
+    return {**_envelope(True), 'Port': {'port_no': body.port_no, 'led_states': device.get_port_states(_port_no_led(body.port_no))}}
 
 
 @router.get('/state/all')
