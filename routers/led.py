@@ -2,6 +2,7 @@
 
 POST /api/led/set        set a single LED (led_no) of a port to led_state
 POST /api/led/set/port   apply a 4-digit LED state code to a single port
+POST /api/led/set/ports  apply a 4-digit LED state code to multiple ports
 POST /api/led/state      report the LED state code of a single port
 GET  /api/led/state/all  report the LED state code of every live port
 
@@ -56,6 +57,15 @@ class LedPortStateRequest(BaseModel):
     port_no: int
 
 
+class LedPortStates(BaseModel):
+    port_no: int
+    led_states: str
+
+
+class LedPortsRequest(BaseModel):
+    ports: list[LedPortStates]
+
+
 def _envelope(success, error_code=0, message=''):
     return {
         'Success': success,
@@ -107,6 +117,39 @@ async def set_port_led_states(request: Request, body: LedStateRequest):
         device.on_notify({'port_no': body.port_no, 'type': 6, 'led_no': led_no, 'led_state': int(digit)})
 
     return {**_envelope(True), 'Port': {'port_no': body.port_no, 'led_states': body.led_states}}
+
+
+@router.post('/set/ports')
+async def set_ports_led_states(request: Request, body: LedPortsRequest):
+    if settings.DEVICE_TYPE != AEI_DEVICE_TYPE:
+        return _ng(403, 'AEI mode is not enabled')
+
+    if not body.ports:
+        return _ng(422, 'ports is required')
+
+    # All-or-nothing: every entry is validated before anything is enqueued,
+    # so a bad port or state code anywhere rejects the whole request.
+    for entry in body.ports:
+        if not _port_exists(entry.port_no):
+            return _ng(403, 'port_no is not exist')
+
+        device = _device_for_port(request.app.state.tsc, entry.port_no)
+        if device is None:
+            return _ng(503, 'device is not connected')
+
+        if len(entry.led_states) != LED_STATES_LENGTH or any(ch not in VALID_LED_STATES for ch in entry.led_states):
+            return _ng(422, 'invalid led_no/led_state')
+
+    for entry in body.ports:
+        device = _device_for_port(request.app.state.tsc, entry.port_no)
+        for led_no, digit in enumerate(entry.led_states, start=1):
+            device.on_notify({'port_no': entry.port_no, 'type': 6, 'led_no': led_no, 'led_state': int(digit)})
+
+    return {
+        **_envelope(True),
+        'Length': len(body.ports),
+        'Ports': [{'port_no': entry.port_no, 'led_states': entry.led_states} for entry in body.ports],
+    }
 
 
 @router.post('/set')

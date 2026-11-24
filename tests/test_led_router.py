@@ -5,6 +5,8 @@ POST /api/led/set        sets one LED of one port by enqueuing a single
 POST /api/led/set/port   applies a 4-digit LED state code to one port by
                          enqueuing the same type-6 payloads MQTT carries
                          (LEDButton.on_notify).
+POST /api/led/set/ports  applies a 4-digit LED state code to several ports
+                         in one request (all-or-nothing validation).
 POST /api/led/state      reports the LED state code of one port (within
                          LOAD_PORT_NUMBER on an enabled board).
 GET  /api/led/state/all  reports the LED state code of every live port
@@ -28,12 +30,15 @@ from config import settings
 from device_io import LEDButton
 from routers.led import (
     LedPortStateRequest,
+    LedPortStates,
+    LedPortsRequest,
     LedSetRequest,
     LedStateRequest,
     get_all_led_states,
     get_led_state,
     set_led,
     set_port_led_states,
+    set_ports_led_states,
 )
 
 
@@ -101,6 +106,11 @@ def set_led_state(request_aei, port_no=1, led_no=1, led_state=2):
 def get_state(request_aei, port_no=1):
     body = LedPortStateRequest(port_no=port_no)
     return asyncio.run(get_led_state(request_aei, body))
+
+
+def set_ports(request_aei, ports):
+    body = LedPortsRequest(ports=[LedPortStates(**port) for port in ports])
+    return asyncio.run(set_ports_led_states(request_aei, body))
 
 
 # --- POST /api/led/state ------------------------------------------------------
@@ -178,6 +188,107 @@ def test_post_rejects_invalid_led_states(request_aei, led_states):
 
     assert response == {'Success': False, 'State': 'NG', 'ErrorCode': 422, 'Message': 'invalid led_no/led_state'}
     assert list(request_aei.app.state.tsc.device.cmd_queue) == []
+
+
+# --- POST /api/led/set/ports --------------------------------------------------
+
+def test_set_ports_enqueues_four_payloads_per_port(request_aei):
+    response = set_ports(request_aei, [
+        {'port_no': 1, 'led_states': '2356'},
+        {'port_no': 3, 'led_states': '1111'},
+    ])
+
+    tsc = request_aei.app.state.tsc
+    assert list(tsc.device.cmd_queue) == [
+        {'port_no': 1, 'type': 6, 'led_no': 1, 'led_state': 2},
+        {'port_no': 1, 'type': 6, 'led_no': 2, 'led_state': 3},
+        {'port_no': 1, 'type': 6, 'led_no': 3, 'led_state': 5},
+        {'port_no': 1, 'type': 6, 'led_no': 4, 'led_state': 6},
+    ]
+    assert list(tsc.device2.cmd_queue) == [
+        {'port_no': 3, 'type': 6, 'led_no': 1, 'led_state': 1},
+        {'port_no': 3, 'type': 6, 'led_no': 2, 'led_state': 1},
+        {'port_no': 3, 'type': 6, 'led_no': 3, 'led_state': 1},
+        {'port_no': 3, 'type': 6, 'led_no': 4, 'led_state': 1},
+    ]
+    assert response == {
+        'Success': True, 'State': 'OK', 'ErrorCode': 0, 'Message': '',
+        'Length': 2,
+        'Ports': [{'port_no': 1, 'led_states': '2356'}, {'port_no': 3, 'led_states': '1111'}],
+    }
+
+
+def test_set_ports_rejects_non_aei_mode(monkeypatch, request_aei):
+    monkeypatch.setattr(settings, 'DEVICE_TYPE', 0)
+
+    response = set_ports(request_aei, [{'port_no': 1, 'led_states': '2356'}])
+
+    assert response == {'Success': False, 'State': 'NG', 'ErrorCode': 403, 'Message': 'AEI mode is not enabled'}
+    assert list(request_aei.app.state.tsc.device.cmd_queue) == []
+
+
+def test_set_ports_rejects_empty_ports_list(request_aei):
+    response = set_ports(request_aei, [])
+
+    assert response == {'Success': False, 'State': 'NG', 'ErrorCode': 422, 'Message': 'ports is required'}
+
+
+def test_set_ports_rejects_all_when_one_led_states_is_invalid(request_aei):
+    response = set_ports(request_aei, [
+        {'port_no': 1, 'led_states': '2356'},
+        {'port_no': 2, 'led_states': '235'},  # too short
+    ])
+
+    assert response == {'Success': False, 'State': 'NG', 'ErrorCode': 422, 'Message': 'invalid led_no/led_state'}
+    # All-or-nothing: nothing is enqueued, not even the valid first entry.
+    assert list(request_aei.app.state.tsc.device.cmd_queue) == []
+
+
+@pytest.mark.parametrize('port_no', [0, 5, -1])
+def test_set_ports_rejects_all_when_one_port_no_is_unknown(monkeypatch, request_aei, port_no):
+    monkeypatch.setattr(settings, 'LOAD_PORT_NUMBER', 4)
+
+    response = set_ports(request_aei, [
+        {'port_no': 1, 'led_states': '2356'},
+        {'port_no': port_no, 'led_states': '2356'},
+    ])
+
+    assert response == {'Success': False, 'State': 'NG', 'ErrorCode': 403, 'Message': 'port_no is not exist'}
+    assert list(request_aei.app.state.tsc.device.cmd_queue) == []
+
+
+def test_set_ports_rejects_board2_port_when_board2_disabled(monkeypatch, request_aei):
+    monkeypatch.setattr(settings, 'LEDBOARD2_ENABLE', False)
+
+    response = set_ports(request_aei, [{'port_no': 4, 'led_states': '2356'}])
+
+    assert response == {'Success': False, 'State': 'NG', 'ErrorCode': 403, 'Message': 'port_no is not exist'}
+
+
+def test_set_ports_rejects_all_when_one_device_is_disconnected(monkeypatch, request_aei):
+    monkeypatch.setattr(settings, 'LEDBOARD2_ENABLE', False)
+    request_aei.app.state.tsc.device = None
+
+    response = set_ports(request_aei, [{'port_no': 1, 'led_states': '2356'}])
+
+    assert response == {'Success': False, 'State': 'NG', 'ErrorCode': 503, 'Message': 'device is not connected'}
+
+
+def test_get_all_reflects_http_set_ports(request_aei):
+    set_ports(request_aei, [
+        {'port_no': 1, 'led_states': '2356'},
+        {'port_no': 3, 'led_states': '1111'},
+    ])
+
+    # Simulate the device thread draining its command queue.
+    for device in (request_aei.app.state.tsc.device, request_aei.app.state.tsc.device2):
+        while device.cmd_queue:
+            device.data_process(device.cmd_queue.popleft())
+
+    response = get_all(request_aei)
+
+    assert response['Ports'][0] == {'port_no': 1, 'led_states': '2356'}
+    assert response['Ports'][2] == {'port_no': 3, 'led_states': '1111'}
 
 
 # --- POST /api/led/set --------------------------------------------------------
