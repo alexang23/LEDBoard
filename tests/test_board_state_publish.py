@@ -4,7 +4,7 @@ Board state messages (initial status, LED update, reset-button press,
 mode-button press) are built by LEDButton._publish_board_state, which
 adds the port's 4-digit LED state code (see device_io.LEDButton.get_port_states)
 and the LED-traffic type code (6 in AEI mode, 4 in GYRO-300 mode)
-alongside ledboard_state. These tests use a stub mqtt_svc and an
+alongside code_id. These tests use a stub mqtt_svc and an
 LEDButton with no serial hardware attached.
 """
 
@@ -67,9 +67,9 @@ def test_publish_board_state_carries_led_states():
     (data,) = device.mqtt_svc.payloads
     assert data['port_no'] == 1
     assert data['dual_port'] == 0
-    assert data['ledboard_state'] == 10
+    assert data['code_id'] == 10
     assert data['led_states'] == '2050'
-    assert list(data.keys()) == ['port_no', 'dual_port', 'type', 'ledboard_state', 'led_states', 'occurred_at']
+    assert list(data.keys()) == ['port_no', 'dual_port', 'type', 'code_id', 'led_states', 'occurred_at']
 
 
 def test_led_states_defaults_to_zeros_when_never_commanded():
@@ -139,7 +139,7 @@ def test_led_update_flush_publishes_ledboard_led():
 
     (data,) = device.mqtt_svc.payloads
     assert data['port_no'] == 1
-    assert data['ledboard_state'] == settings.LEDBOARD_LED
+    assert data['code_id'] == settings.LEDBOARD_LED
     assert data['led_states'] == '2000'
     assert device._dirty_ports == set()
 
@@ -163,7 +163,7 @@ def test_solid_command_marks_port_dirty_then_flushes():
 
     device._flush_led_updates()
     (data,) = device.mqtt_svc.payloads
-    assert data['ledboard_state'] == settings.LEDBOARD_LED
+    assert data['code_id'] == settings.LEDBOARD_LED
     assert data['led_states'] == '1000'
 
 
@@ -174,7 +174,7 @@ def test_blink_command_publishes_once_toggles_do_not_republish():
 
     device._flush_led_updates()
     (data,) = device.mqtt_svc.payloads
-    assert data['ledboard_state'] == settings.LEDBOARD_LED
+    assert data['code_id'] == settings.LEDBOARD_LED
     assert data['led_states'] == '0004'
 
     # Blinker toggle writes record no state change: no new LED update.

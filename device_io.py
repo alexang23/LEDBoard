@@ -401,11 +401,11 @@ class LEDButton(threading.Thread):
         """Board-local port number: board 2 ports (3, 4) map to (1, 2)."""
         return port_no - 2 if self.board == 2 else port_no
 
-    def _publish_board_state(self, port_no, ledboard_state):
+    def _publish_board_state(self, port_no, code_id):
         """Publish one board state message for global port_no.
 
         Carries the port's 4-digit LED state code (led_states, see
-        get_port_states) alongside ledboard_state. Returns occurred_at so
+        get_port_states) alongside code_id. Returns occurred_at so
         button-press handlers can timestamp their debounce record with the
         exact value that was published.
         """
@@ -414,7 +414,7 @@ class LEDButton(threading.Thread):
         data['dual_port'] = 0
         # LED-traffic type code: 6 in AEI mode (DEVICE_TYPE=1), 4 otherwise.
         data['type'] = 6 if settings.DEVICE_TYPE == 1 else 4
-        data['ledboard_state'] = ledboard_state
+        data['code_id'] = code_id
         data['led_states'] = self.get_port_states(self._port_no_led(port_no))
         data['occurred_at'] = time.time()
         self.mqtt_svc.publish(data)
