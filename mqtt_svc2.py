@@ -236,7 +236,6 @@ class MQTTSvc(Thread):
             self.mqttc = client
             await client.subscribe(self.topic, settings.MQTT_QOS)
             await client.subscribe(f"{self.topic}/Request", settings.MQTT_QOS)
-            await client.subscribe(f"{self.topic}/AEI", settings.MQTT_QOS)
             await client.subscribe(self.topic_server, settings.MQTT_QOS)
             await client.subscribe(f"{self.topic_server}/Process", settings.MQTT_QOS)
             await client.subscribe(f"{self.topic_server}/LRC/response", settings.MQTT_QOS)
@@ -399,6 +398,11 @@ class MQTTSvc(Thread):
             return
         payload = json.loads(raw_payload)
 
+        # AEI mode: type-6 LED control arrives on the base topic
+        if payload.get('type') == 6:
+            await self._handle_aei_message(topic, qos, raw_payload, retain)
+            return
+
         if 'port_no' in payload and payload['port_no'] > settings.LOAD_PORT_NUMBER:
             self.logger.info(f"######## exclude ######## (port_no={payload['port_no']} > LOAD_PORT_NUMBER={settings.LOAD_PORT_NUMBER})")
             return
@@ -512,8 +516,6 @@ class MQTTSvc(Thread):
                 await self._handle_response_message(topic, qos, raw_payload)
             elif topic.endswith("Request"):
                 await self._handle_request_message(raw_payload, properties)
-            elif topic.endswith("AEI"):
-                await self._handle_aei_message(topic, qos, raw_payload, retain)
         except Exception as err:
             self.logger.error(f"mqtt : on_message : {str(err)}")
 

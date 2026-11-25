@@ -2,13 +2,14 @@
 
 Companion to tests/test_aei_led_control.py for manual verification against a
 running LEDBoard application (DEVICE_TYPE=1, AEI mode). The application
-subscribes to f"{MQTT_TOPIC}/AEI" (mqtt_svc2.connect_MQTT_service), so by
-default this script publishes to "IPC/AEI".
+subscribes to f"{MQTT_TOPIC}" (mqtt_svc2.connect_MQTT_service) and selects
+the AEI handler by the payload's type == 6, so by default this script
+publishes to the base topic ("IPC").
 
 Examples:
     uv run python tests/send_aei_test_message.py
     uv run python tests/send_aei_test_message.py --port-no 2 --led-no 4 --led-state 3
-    uv run python tests/send_aei_test_message.py --host 192.168.1.50 --topic IPC/AEI
+    uv run python tests/send_aei_test_message.py --host 192.168.1.50 --topic IPC
 
 Expected behaviour on the board: the LED named by --led-no (1=Switch, 2=RFID,
 3=E84, 4=Port) on the port given by --port-no shows the state given by
@@ -45,7 +46,7 @@ def main():
                         help='MQTT broker host (default: %(default)s)')
     parser.add_argument('--port', type=int, default=settings.MQTT_PORT,
                         help='MQTT broker port (default: %(default)s)')
-    parser.add_argument('--topic', default=f'{settings.MQTT_TOPIC}/AEI',
+    parser.add_argument('--topic', default=settings.MQTT_TOPIC,
                         help='topic to publish to (default: %(default)s)')
     parser.add_argument('--port-no', type=int, default=1, choices=[1, 2, 3, 4],
                         help='load port number (default: %(default)s)')

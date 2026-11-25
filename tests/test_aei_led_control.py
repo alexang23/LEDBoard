@@ -2,9 +2,10 @@
 
 In AEI mode the LED board is driven remotely by type-6 LED control messages:
 a JSON payload {"port_no": N, "type": 6, "led_no": L, "led_state": S} arrives
-on the "IPC/AEI" topic, is dispatched by MQTTSvc.on_message to
-_handle_aei_message, routed to LEDButton.on_notify, and finally translated by
-LEDButton.data_process into a serial frame via set_led.
+on the "IPC" topic, is dispatched by MQTTSvc.on_message to _handle_ipc_message
+which delegates type-6 payloads to _handle_aei_message, routed to
+LEDButton.on_notify, and finally translated by LEDButton.data_process into a
+serial frame via set_led.
 
 The tests are fully mocked: no broker and no serial device are required.
 - MQTTSvc is exercised with its real on_message/_handle_aei_message/
@@ -20,8 +21,8 @@ Coverage (per the agreed design):
   with a None frame, and a solid command cancels the active blink
 - invalid input rejection in data_process
 - inbound dispatch: retain skip, port_no > LOAD_PORT_NUMBER skip,
-  non-type-6 skip, missing-"type" permissiveness, and the fact that a
-  type-6 payload sent to the "IPC" topic is NOT routed.
+  non-type-6 skip; a type-6 payload on the "IPC" topic IS routed
+  (type == 6 is what selects the AEI handler, not a subtopic).
 """
 
 import asyncio
@@ -241,11 +242,11 @@ def test_non_type6_payload_does_not_write_a_frame(board):
     assert board.device.writes == []
 
 
-# --- inbound MQTT dispatch: on_message -> _handle_aei_message ----------------
+# --- inbound MQTT dispatch: on_message -> _handle_ipc_message -> _handle_aei_message ---
 
 def test_aei_topic_type6_message_is_routed_to_device(svc, board):
     payload = led_control_payload(port_no=1, led_no=3, led_state=2)
-    msg = FakeMsg('IPC/AEI', json.dumps(payload).encode())
+    msg = FakeMsg('IPC', json.dumps(payload).encode())
 
     asyncio.run(svc.on_message(msg))
 
@@ -254,7 +255,7 @@ def test_aei_topic_type6_message_is_routed_to_device(svc, board):
 
 def test_aei_topic_retained_message_is_skipped(svc, board):
     payload = led_control_payload()
-    msg = FakeMsg('IPC/AEI', json.dumps(payload).encode(), retain=True)
+    msg = FakeMsg('IPC', json.dumps(payload).encode(), retain=True)
 
     asyncio.run(svc.on_message(msg))
 
@@ -265,42 +266,30 @@ def test_aei_topic_port_no_beyond_load_port_number_is_skipped(svc, board):
     # LOAD_PORT_NUMBER is 4 by default; payloads above it are excluded
     # before routing.
     payload = led_control_payload(port_no=settings.LOAD_PORT_NUMBER + 1)
-    msg = FakeMsg('IPC/AEI', json.dumps(payload).encode())
+    msg = FakeMsg('IPC', json.dumps(payload).encode())
 
     asyncio.run(svc.on_message(msg))
 
     assert list(board.cmd_queue) == []
 
 
-def test_aei_topic_non_type6_message_is_not_routed(svc, board):
+def test_aei_topic_non_type6_message_is_not_aei_routed(svc, board):
+    # Only type == 6 selects the AEI handler. A type-4 payload on the base
+    # topic follows the normal IPC path (Place & Go) and is routed from
+    # there, not via _handle_aei_message.
     payload = {'port_no': 1, 'type': 4, 'ledboard_state': 1}
-    msg = FakeMsg('IPC/AEI', json.dumps(payload).encode())
-
-    asyncio.run(svc.on_message(msg))
-
-    assert list(board.cmd_queue) == []
-
-
-def test_aei_topic_message_without_type_is_routed(svc, board):
-    # _handle_aei_message only rejects explicit non-6 types; a payload
-    # without a "type" key passes the filter and is routed. data_process
-    # then fails on the missing key downstream, but routing itself happens.
-    # This test pins that permissive current behaviour.
-    payload = {'port_no': 1, 'led_no': 1, 'led_state': 1}
-    msg = FakeMsg('IPC/AEI', json.dumps(payload).encode())
+    msg = FakeMsg('IPC', json.dumps(payload).encode())
 
     asyncio.run(svc.on_message(msg))
 
     assert list(board.cmd_queue) == [payload]
 
 
-def test_type6_sent_to_ipc_topic_is_not_routed(svc, board):
-    # Type-6 LED control belongs on "IPC/AEI". The same payload sent to the
-    # plain "IPC" topic reaches _handle_ipc_message, whose non-type-2/4
-    # branch expects eqp_state and drops the message (KeyError swallowed by
-    # on_message). This test documents that behaviour for anyone probing
-    # the wrong topic.
-    payload = led_control_payload()
+def test_aei_topic_message_without_type_is_not_aei_routed(svc, board):
+    # type == 6 is what selects the AEI handler. A payload without a "type"
+    # key falls through to the GYRO-300 style handling, which fails on the
+    # missing keys; on_message swallows the error and nothing is routed.
+    payload = {'port_no': 1, 'led_no': 1, 'led_state': 1}
     msg = FakeMsg('IPC', json.dumps(payload).encode())
 
     asyncio.run(svc.on_message(msg))
