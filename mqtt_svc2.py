@@ -454,7 +454,6 @@ class MQTTSvc(Thread):
         self._route_to_device(payload)
 
     async def _handle_aei_message(self, topic, qos, raw_payload, retain):
-        self.logger.info(f"mqtt : on_message topic={topic}, qos={qos}, retain={retain}, data={raw_payload}")
         if retain:
             return
         payload = json.loads(raw_payload)
