@@ -42,6 +42,7 @@ class Settings(BaseSettings):
 	LEDBOARD_DEBUG_ENABLE:bool = False
 	LEDBOARD_ENABLE:bool = True
 	LEDBOARD_COM:int = 5
+	LEDBOARD_COM_TYPE:int = 0 # 0:COM, 1:USB
 	LEDBOARD_BUTTON_TIME:int = 5
 	LEDBOARD_INITIAL:int = 0
 	LEDBOARD_RESET:int = 1
@@ -53,6 +54,7 @@ class Settings(BaseSettings):
 
 	LEDBOARD2_ENABLE:bool = False
 	LEDBOARD2_COM:int = 10
+	LEDBOARD2_COM_TYPE:int = 0 # 0:COM, 1:USB
  
 	CLAMP_ENABLE:bool = False
 	CLAMP_ON:int = 1

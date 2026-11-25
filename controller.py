@@ -1,6 +1,7 @@
 from threading import Thread
 from time import sleep
 
+import sys
 import traceback
 from config import settings
 
@@ -35,6 +36,14 @@ class Controller(Thread):
         self.device = None
         self.device2 = None
 
+    @staticmethod
+    def _dev_path(com, com_type):
+        if sys.platform == 'win32':
+            return f'COM{com}'
+        if com_type == 1:
+            return f'/dev/ttyUSB{com-1}'
+        return f'/dev/ttyS{com-1}'
+
     def run(self):
 
         # Own the watchdog lifecycle: the monitor must not depend on any
@@ -51,9 +60,9 @@ class Controller(Thread):
                 # are routed via controller.device/device2 (_route_to_device),
                 # which has no None guard, so the MQTT thread must not run
                 # while those attributes are still None.
-                self.device = LEDButton(devPath='COM'+str(settings.LEDBOARD_COM), board=1, mqtt_svc=None, log=self.tsc_logger)
+                self.device = LEDButton(devPath=self._dev_path(settings.LEDBOARD_COM, settings.LEDBOARD_COM_TYPE), board=1, mqtt_svc=None, log=self.tsc_logger)
                 if settings.LEDBOARD2_ENABLE:
-                    self.device2 = LEDButton(devPath='COM'+str(settings.LEDBOARD2_COM), board=2, mqtt_svc=None, log=self.tsc_logger)
+                    self.device2 = LEDButton(devPath=self._dev_path(settings.LEDBOARD2_COM, settings.LEDBOARD2_COM_TYPE), board=2, mqtt_svc=None, log=self.tsc_logger)
                 self.mqtt_svc = MQTTSvc(self, self.tsc_logger)
                 self.device.mqtt_svc = self.mqtt_svc
                 if settings.LEDBOARD2_ENABLE:
