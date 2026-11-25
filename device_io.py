@@ -446,6 +446,100 @@ class LEDButton(threading.Thread):
             self._dirty_ports = set()
 
 
+    def _handle_led_command(self, payload, port_no_led=None):
+        """Handle one AEI type-6 LED command message (GLOSSARY: LED command
+        message). The message's code_id selects the command:
+
+        0 - LED query: publish board state message(s) carrying code_id
+            LEDBOARD_QUERY (6). With a port: one message for that port.
+            Without a port (query-all, fanned out to every board): one
+            message per port this board owns. Responses read the commanded
+            state record (get_port_states) immediately.
+        1 - set one LED: led_no (1-4) + led_state (0-6) on one port;
+            flashed states 4-6 register a blink.
+        2 - set whole ports: ports list of {port_no, led_states} with
+            led_states the 4-digit LED state code. Every entry for this
+            board is validated first; any invalid entry rejects this
+            board's whole subset (atomic application per board).
+
+        Messages with a missing or unknown code_id (including the former
+        no-code_id single-LED format) are logged and ignored.
+        """
+        code_id = payload.get('code_id')
+
+        if code_id == 0: # LED query
+            if port_no_led is None:
+                # Query-all: this board answers for its own ports only.
+                first = 3 if self.board == 2 else 1
+                for port_no in (first, first + 1):
+                    if port_no <= settings.LOAD_PORT_NUMBER:
+                        self._publish_board_state(port_no, settings.LEDBOARD_QUERY)
+            else:
+                port_no = port_no_led + 2 if self.board == 2 else port_no_led
+                self._publish_board_state(port_no, settings.LEDBOARD_QUERY)
+            return
+
+        if code_id == 1: # set one LED
+            if 'led_no' not in payload:
+                return
+            if 'led_state' not in payload:
+                return
+
+            if payload['led_no'] not in range(1, 5):
+                return
+            if payload['led_state'] not in range(0, 7):
+                return
+
+            led_name = self.led_idx[payload['led_no']]
+            led_state = payload['led_state']
+            # set_led / start_blink record the applied state, so
+            # GET /api/led/state/all sees the requested state (including
+            # flashed digits 4-6) even when the serial write fails.
+            if led_state in self.blink_color: # Flashed states: blink the requested color
+                self.start_blink(led_name, port_no_led, self.blink_color[led_state])
+            else:
+                self.set_led(led_name, port_no_led, self.led_state[led_state])
+            return
+
+        if code_id == 2: # set whole ports
+            entries = payload.get('ports')
+            if not isinstance(entries, list) or not entries:
+                self.logger.error(f"board {self.board}: led command : code_id=2 without ports list")
+                return
+            # Validate every entry belonging to this board before applying
+            # anything: any invalid entry rejects this board's whole subset.
+            first = 3 if self.board == 2 else 1
+            validated = []
+            for entry in entries:
+                try:
+                    port_no = entry['port_no']
+                    led_states = entry['led_states']
+                except (TypeError, KeyError, IndexError):
+                    self.logger.error(f"board {self.board}: led command : code_id=2 malformed entry {entry!r}")
+                    return
+                if not isinstance(port_no, int) or not isinstance(led_states, str):
+                    self.logger.error(f"board {self.board}: led command : code_id=2 malformed entry {entry!r}")
+                    return
+                if port_no not in (first, first + 1) or port_no > settings.LOAD_PORT_NUMBER:
+                    continue # another board's port (or out of range): not ours
+                if len(led_states) != 4 or any(d not in '0123456' for d in led_states):
+                    self.logger.error(f"board {self.board}: led command : code_id=2 invalid led_states {led_states!r} for port_no={port_no}")
+                    return
+                validated.append((self._port_no_led(port_no), led_states))
+            # Apply digit by digit, Switch/RFID/E84/Port order: 0-3 solid,
+            # 4-6 blink, matching code_id=1's per-LED semantics.
+            for port_no_led, led_states in validated:
+                for led_no in range(1, 5):
+                    led_state = int(led_states[led_no - 1])
+                    led_name = self.led_idx[led_no]
+                    if led_state in self.blink_color:
+                        self.start_blink(led_name, port_no_led, self.blink_color[led_state])
+                    else:
+                        self.set_led(led_name, port_no_led, self.led_state[led_state])
+            return
+
+        self.logger.info(f"board {self.board}: led command ignored : code_id={code_id!r}")
+
     def cmd(self, data):
         try:
             data = list(data)
@@ -529,6 +623,15 @@ class LEDButton(threading.Thread):
 
     def data_process(self, payload):
         try:
+            # AEI type-6 LED command without a top-level port_no (query-all
+            # code_id=0, multi-port set code_id=2): _route_to_device fanned
+            # it out to every board, so bypass the board-local port filter
+            # below and let _handle_led_command apply only this board's
+            # own ports.
+            if payload['type'] == 6 and 'port_no' not in payload:
+                self._handle_led_command(payload)
+                return True
+
             port_no = payload['port_no']
 
             if self.board == 1:
@@ -541,26 +644,8 @@ class LEDButton(threading.Thread):
                 port_no_led = port_no - 2
 
             if payload['type'] == 6:
-                if 'led_no' not in payload:
-                    return
-                if 'led_state' not in payload:
-                    return
+                self._handle_led_command(payload, port_no_led)
 
-                if payload['led_no'] not in range(1, 5):
-                    return
-                if payload['led_state'] not in range(0, 7):
-                    return
-
-                led_name = self.led_idx[payload['led_no']]
-                led_state = payload['led_state']
-                # set_led / start_blink record the applied state, so
-                # GET /api/led/state/all sees the requested state (including
-                # flashed digits 4-6) even when the serial write fails.
-                if led_state in self.blink_color: # Flashed states: blink the requested color
-                    self.start_blink(led_name, port_no_led, self.blink_color[led_state])
-                else:
-                    self.set_led(led_name, port_no_led, self.led_state[led_state])
-            
             # except Exception as err:
             #     self.logger.error(f"device : data_process : {str(err)}")
             #     return False

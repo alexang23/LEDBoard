@@ -16,12 +16,20 @@ _Avoid_: device type 0, IPC mode
 
 ### Messages
 
-**LED control message**:
-An inbound MQTT message carrying type 6 that sets one named LED on one port to one state. Type 6 is the LED-traffic code, shared with outbound board state and event messages in AEI mode.
-_Avoid_: type-6 message used alone, LED command
+**LED command message**:
+An inbound MQTT message carrying type 6 whose `code_id` selects the command: 0 = LED query, 1 = set one LED (one named LED on one port to one state), 2 = set whole ports (one LED state code per port, applied atomically per board). A message with a missing or unknown `code_id` is ignored. Type 6 is the LED-traffic code, shared with outbound board state and event messages in AEI mode.
+_Avoid_: LED control message, type-6 message used alone, LED command without code_id
+
+**LED query**:
+The code_id-0 LED command message. With a `port_no`, the board answers with one board state message for that port; without one, the message is fanned out to every board and each board answers for its own ports. The response reads the board's commanded state record immediately, not the physical board's echo.
+_Avoid_: get state, status request
+
+**LED query response**:
+A board state message carrying `code_id` 6 (LEDBOARD_QUERY), published in answer to an LED query. This outbound `code_id` is unrelated to the inbound LED command message's `code_id`.
+_Avoid_: query reply used alone
 
 **Board state message**:
-An outbound MQTT message the board publishes to report its `code_id` status value (initial status, LED update, reset-button press, mode-button press, E84-button press, or RFID-button press) together with the port's `led_states` LED state code and the LED-traffic type code (6 in AEI mode, 4 in GYRO-300 mode). Note: this `code_id` is distinct from the equipment code ID carried by inbound equipment state messages, despite sharing the name. Formerly keyed `ledboard_state`.
+An outbound MQTT message the board publishes to report its `code_id` status value (initial status, LED update, reset-button press, mode-button press, E84-button press, RFID-button press, or LED query response) together with the port's `led_states` LED state code and the LED-traffic type code (6 in AEI mode, 4 in GYRO-300 mode). Note: this outbound `code_id` is a completely separate namespace from the inbound LED command message's `code_id` (0/1/2) and from the equipment code ID carried by inbound equipment state messages, despite sharing the name. Formerly keyed `ledboard_state`.
 _Avoid_: status message, heartbeat
 
 **LED update**:

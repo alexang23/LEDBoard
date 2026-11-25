@@ -114,7 +114,7 @@ async def set_port_led_states(request: Request, body: LedStateRequest):
         return _ng(422, 'invalid led_no/led_state')
 
     for led_no, digit in enumerate(body.led_states, start=1):
-        device.on_notify({'port_no': body.port_no, 'type': 6, 'led_no': led_no, 'led_state': int(digit)})
+        device.on_notify({'port_no': body.port_no, 'type': 6, 'code_id': 1, 'led_no': led_no, 'led_state': int(digit)})
 
     return {**_envelope(True), 'Port': {'port_no': body.port_no, 'led_states': body.led_states}}
 
@@ -143,7 +143,7 @@ async def set_ports_led_states(request: Request, body: LedPortsRequest):
     for entry in body.ports:
         device = _device_for_port(request.app.state.tsc, entry.port_no)
         for led_no, digit in enumerate(entry.led_states, start=1):
-            device.on_notify({'port_no': entry.port_no, 'type': 6, 'led_no': led_no, 'led_state': int(digit)})
+            device.on_notify({'port_no': entry.port_no, 'type': 6, 'code_id': 1, 'led_no': led_no, 'led_state': int(digit)})
 
     return {
         **_envelope(True),
@@ -167,7 +167,7 @@ async def set_led(request: Request, body: LedSetRequest):
     if body.led_no not in range(1, LED_STATES_LENGTH + 1) or body.led_state not in range(len(VALID_LED_STATES)):
         return _ng(422, 'invalid led_no/led_state')
 
-    device.on_notify({'port_no': body.port_no, 'type': 6, 'led_no': body.led_no, 'led_state': body.led_state})
+    device.on_notify({'port_no': body.port_no, 'type': 6, 'code_id': 1, 'led_no': body.led_no, 'led_state': body.led_state})
 
     return {**_envelope(True), 'Port': {'port_no': body.port_no, 'led_no': body.led_no, 'led_state': body.led_state}}
 

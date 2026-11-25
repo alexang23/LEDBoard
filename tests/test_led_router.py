@@ -122,10 +122,10 @@ def test_post_valid_enqueues_four_type6_payloads(request_aei, port_no):
     tsc = request_aei.app.state.tsc
     device = tsc.device if port_no in (1, 2) else tsc.device2
     assert list(device.cmd_queue) == [
-        {'port_no': port_no, 'type': 6, 'led_no': 1, 'led_state': 2},
-        {'port_no': port_no, 'type': 6, 'led_no': 2, 'led_state': 3},
-        {'port_no': port_no, 'type': 6, 'led_no': 3, 'led_state': 5},
-        {'port_no': port_no, 'type': 6, 'led_no': 4, 'led_state': 6},
+        {'port_no': port_no, 'type': 6, 'code_id': 1, 'led_no': 1, 'led_state': 2},
+        {'port_no': port_no, 'type': 6, 'code_id': 1, 'led_no': 2, 'led_state': 3},
+        {'port_no': port_no, 'type': 6, 'code_id': 1, 'led_no': 3, 'led_state': 5},
+        {'port_no': port_no, 'type': 6, 'code_id': 1, 'led_no': 4, 'led_state': 6},
     ]
     assert response == {
         'Success': True, 'State': 'OK', 'ErrorCode': 0, 'Message': '',
@@ -200,16 +200,16 @@ def test_set_ports_enqueues_four_payloads_per_port(request_aei):
 
     tsc = request_aei.app.state.tsc
     assert list(tsc.device.cmd_queue) == [
-        {'port_no': 1, 'type': 6, 'led_no': 1, 'led_state': 2},
-        {'port_no': 1, 'type': 6, 'led_no': 2, 'led_state': 3},
-        {'port_no': 1, 'type': 6, 'led_no': 3, 'led_state': 5},
-        {'port_no': 1, 'type': 6, 'led_no': 4, 'led_state': 6},
+        {'port_no': 1, 'type': 6, 'code_id': 1, 'led_no': 1, 'led_state': 2},
+        {'port_no': 1, 'type': 6, 'code_id': 1, 'led_no': 2, 'led_state': 3},
+        {'port_no': 1, 'type': 6, 'code_id': 1, 'led_no': 3, 'led_state': 5},
+        {'port_no': 1, 'type': 6, 'code_id': 1, 'led_no': 4, 'led_state': 6},
     ]
     assert list(tsc.device2.cmd_queue) == [
-        {'port_no': 3, 'type': 6, 'led_no': 1, 'led_state': 1},
-        {'port_no': 3, 'type': 6, 'led_no': 2, 'led_state': 1},
-        {'port_no': 3, 'type': 6, 'led_no': 3, 'led_state': 1},
-        {'port_no': 3, 'type': 6, 'led_no': 4, 'led_state': 1},
+        {'port_no': 3, 'type': 6, 'code_id': 1, 'led_no': 1, 'led_state': 1},
+        {'port_no': 3, 'type': 6, 'code_id': 1, 'led_no': 2, 'led_state': 1},
+        {'port_no': 3, 'type': 6, 'code_id': 1, 'led_no': 3, 'led_state': 1},
+        {'port_no': 3, 'type': 6, 'code_id': 1, 'led_no': 4, 'led_state': 1},
     ]
     assert response == {
         'Success': True, 'State': 'OK', 'ErrorCode': 0, 'Message': '',
@@ -297,7 +297,7 @@ def test_set_valid_enqueues_one_type6_payload(request_aei):
     response = set_led_state(request_aei, port_no=3, led_no=4, led_state=6)
 
     device = request_aei.app.state.tsc.device2
-    assert list(device.cmd_queue) == [{'port_no': 3, 'type': 6, 'led_no': 4, 'led_state': 6}]
+    assert list(device.cmd_queue) == [{'port_no': 3, 'type': 6, 'code_id': 1, 'led_no': 4, 'led_state': 6}]
     assert response == {
         'Success': True, 'State': 'OK', 'ErrorCode': 0, 'Message': '',
         'Port': {'port_no': 3, 'led_no': 4, 'led_state': 6},
@@ -309,7 +309,7 @@ def test_set_clears_to_none(request_aei):
 
     assert response['Success'] is True
     assert list(request_aei.app.state.tsc.device.cmd_queue) == [
-        {'port_no': 1, 'type': 6, 'led_no': 2, 'led_state': 0},
+        {'port_no': 1, 'type': 6, 'code_id': 1, 'led_no': 2, 'led_state': 0},
     ]
 
 
@@ -432,7 +432,7 @@ def test_post_state_reports_all_zero_states_for_uncommanded_port(request_aei):
 
 def test_post_state_reports_recorded_state(request_aei):
     tsc = request_aei.app.state.tsc
-    tsc.device.data_process({'port_no': 2, 'type': 6, 'led_no': 1, 'led_state': 3})
+    tsc.device.data_process({'port_no': 2, 'type': 6, 'code_id': 1, 'led_no': 1, 'led_state': 3})
 
     response = get_state(request_aei, port_no=2)
 
@@ -443,7 +443,7 @@ def test_post_state_reports_recorded_state(request_aei):
 def test_post_state_maps_board2_ports_to_local_ports(request_aei):
     tsc = request_aei.app.state.tsc
     # Board 2 serves port_no 3-4 as board-local ports 1-2.
-    tsc.device2.data_process({'port_no': 4, 'type': 6, 'led_no': 4, 'led_state': 2})
+    tsc.device2.data_process({'port_no': 4, 'type': 6, 'code_id': 1, 'led_no': 4, 'led_state': 2})
 
     response = get_state(request_aei, port_no=4)
 
@@ -501,7 +501,7 @@ def test_post_state_ng_when_owning_device_is_disconnected(monkeypatch, request_a
 
 def test_get_all_reports_last_applied_state(request_aei):
     tsc = request_aei.app.state.tsc
-    tsc.device.data_process({'port_no': 2, 'type': 6, 'led_no': 3, 'led_state': 2})
+    tsc.device.data_process({'port_no': 2, 'type': 6, 'code_id': 1, 'led_no': 3, 'led_state': 2})
 
     response = get_all(request_aei)
 
@@ -511,7 +511,7 @@ def test_get_all_reports_last_applied_state(request_aei):
 
 def test_get_all_reports_flashed_state_as_its_digit(request_aei):
     tsc = request_aei.app.state.tsc
-    tsc.device.data_process({'port_no': 1, 'type': 6, 'led_no': 1, 'led_state': 4})
+    tsc.device.data_process({'port_no': 1, 'type': 6, 'code_id': 1, 'led_no': 1, 'led_state': 4})
 
     response = get_all(request_aei)
 
@@ -521,7 +521,7 @@ def test_get_all_reports_flashed_state_as_its_digit(request_aei):
 def test_get_all_maps_board2_ports_to_local_ports(request_aei):
     tsc = request_aei.app.state.tsc
     # Board 2 serves port_no 3-4 as board-local ports 1-2.
-    tsc.device2.data_process({'port_no': 4, 'type': 6, 'led_no': 2, 'led_state': 1})
+    tsc.device2.data_process({'port_no': 4, 'type': 6, 'code_id': 1, 'led_no': 2, 'led_state': 1})
 
     response = get_all(request_aei)
 
@@ -588,7 +588,7 @@ def test_get_all_blinker_writes_keep_flashed_digit(request_aei):
     # The blink loop alternates color/None with from_blinker=True; those
     # writes must not overwrite the recorded flash digit.
     tsc = request_aei.app.state.tsc
-    tsc.device.data_process({'port_no': 1, 'type': 6, 'led_no': 4, 'led_state': 6})
+    tsc.device.data_process({'port_no': 1, 'type': 6, 'code_id': 1, 'led_no': 4, 'led_state': 6})
     tsc.device.set_led('Port', 1, 'Red', from_blinker=True)
     tsc.device.set_led('Port', 1, 'None', from_blinker=True)
 

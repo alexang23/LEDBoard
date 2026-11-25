@@ -378,6 +378,14 @@ class MQTTSvc(Thread):
         self.logger.info(f"mqtt : port_no={port_no}, process_state={payload['process_state']}")
 
     def _route_to_device(self, data):
+        if 'port_no' not in data:
+            # AEI type-6 LED command without a top-level port_no (query-all
+            # code_id=0, multi-port set code_id=2): fan out to every enabled
+            # board; each board answers/applies only for its own ports.
+            self.controller.device.on_notify(data)
+            if settings.LEDBOARD2_ENABLE:
+                self.controller.device2.on_notify(data)
+            return
         if settings.LEDBOARD2_ENABLE:
             target = self.controller.device if data["port_no"] < 3 else self.controller.device2
         else:

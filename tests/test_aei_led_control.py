@@ -1,11 +1,15 @@
 """Tests for DEVICE_TYPE=1 (AEI mode) MQTT LED control.
 
-In AEI mode the LED board is driven remotely by type-6 LED control messages:
-a JSON payload {"port_no": N, "type": 6, "led_no": L, "led_state": S} arrives
-on the "IPC" topic, is dispatched by MQTTSvc.on_message to _handle_ipc_message
+In AEI mode the LED board is driven remotely by type-6 LED command messages:
+a JSON payload {"port_no": N, "type": 6, "code_id": C, ...} arrives on the
+"IPC" topic, is dispatched by MQTTSvc.on_message to _handle_ipc_message
 which delegates type-6 payloads to _handle_aei_message, routed to
-LEDButton.on_notify, and finally translated by LEDButton.data_process into a
-serial frame via set_led.
+LEDButton.on_notify, and finally translated by LEDButton.data_process /
+_handle_led_command into LED actions (set_led / start_blink) or query
+responses (board state messages via _publish_board_state). code_id selects
+the command: 0 = query (led_states response with code_id LEDBOARD_QUERY=6),
+1 = set one LED (led_no + led_state), 2 = set whole ports (ports list of
+{port_no, led_states}).
 
 The tests are fully mocked: no broker and no serial device are required.
 - MQTTSvc is exercised with its real on_message/_handle_aei_message/
@@ -14,15 +18,27 @@ The tests are fully mocked: no broker and no serial device are required.
   so tests can assert the exact LED frames produced.
 
 Coverage (per the agreed design):
-- full valid matrix: led_no 1..4 (Switch/RFID/E84/Port) x led_state 0..3
-  (None/Green/Blue/Red) x port_no 1..2 on board 1
-- flashed states (4..6) register a blink on the requested LED in the
-  requested color (Green/Blue/Red); blink ticks alternate the color frame
-  with a None frame, and a solid command cancels the active blink
-- invalid input rejection in data_process
+- LED command message format: type 6 + code_id selects the command
+  (0=query, 1=set one LED, 2=set whole ports); the former no-code_id
+  format is no longer accepted
+- code_id=1 full valid matrix: led_no 1..4 (Switch/RFID/E84/Port) x
+  led_state 0..3 (None/Green/Blue/Red) x port_no 1..2 on board 1
+- code_id=1 flashed states (4..6) register a blink on the requested LED in
+  the requested color (Green/Blue/Red); blink ticks alternate the color
+  frame with a None frame, and a solid command cancels the active blink
+- code_id=0 query: one board state message (code_id LEDBOARD_QUERY=6) for
+  a named port; one message per board-owned port for a query-all (no
+  port_no, fanned out to every board by _route_to_device)
+- code_id=2 multi-port set: ports list of {port_no, led_states} with
+  led_states the 4-digit LED state code, applied atomically per board
+  (any invalid entry rejects this board's whole subset); entries for the
+  other board's ports are skipped
+- invalid input rejection in _handle_led_command; missing/unknown code_id
+  is logged and ignored
 - inbound dispatch: retain skip, port_no > LOAD_PORT_NUMBER skip,
   non-type-6 skip; a type-6 payload on the "IPC" topic IS routed
-  (type == 6 is what selects the AEI handler, not a subtopic).
+  (type == 6 is what selects the AEI handler, not a subtopic); a type-6
+  payload without port_no is fanned out to every enabled board
 """
 
 import asyncio
@@ -81,8 +97,9 @@ BLINK_COLOR = {4: STATE_COLOR[1], 5: STATE_COLOR[2], 6: STATE_COLOR[3]}  # Green
 NONE_COLOR = STATE_COLOR[0]
 
 
-def led_control_payload(port_no=1, led_no=1, led_state=1):
-    return {'port_no': port_no, 'type': 6, 'led_no': led_no, 'led_state': led_state}
+def led_control_payload(port_no=1, led_no=1, led_state=1, code_id=1):
+    return {'port_no': port_no, 'type': 6, 'code_id': code_id,
+            'led_no': led_no, 'led_state': led_state}
 
 
 # --- fixtures ---------------------------------------------------------------
@@ -196,7 +213,9 @@ def test_type6_solid_command_on_other_led_keeps_blink(board):
 def test_type6_rejects_led_no_out_of_range(board, led_no):
     result = board.data_process(led_control_payload(led_no=led_no))
 
-    assert result is None
+    # Invalid input is ignored inside _handle_led_command; data_process
+    # still reports the message as handled.
+    assert result is True
     assert board.device.writes == []
 
 
@@ -204,7 +223,7 @@ def test_type6_rejects_led_no_out_of_range(board, led_no):
 def test_type6_rejects_led_state_out_of_range(board, led_state):
     result = board.data_process(led_control_payload(led_state=led_state))
 
-    assert result is None
+    assert result is True
     assert board.device.writes == []
 
 
@@ -217,35 +236,199 @@ def test_type6_rejects_port_no_beyond_board_1(board):
 
 
 def test_type6_missing_led_no_is_rejected(board):
-    payload = {'port_no': 1, 'type': 6, 'led_state': 1}
+    payload = {'port_no': 1, 'type': 6, 'code_id': 1, 'led_state': 1}
 
     result = board.data_process(payload)
 
-    assert result is None
+    assert result is True
     assert board.device.writes == []
 
 
 def test_type6_missing_led_state_is_rejected(board):
-    payload = {'port_no': 1, 'type': 6, 'led_no': 1}
+    payload = {'port_no': 1, 'type': 6, 'code_id': 1, 'led_no': 1}
 
     result = board.data_process(payload)
 
-    assert result is None
+    assert result is True
     assert board.device.writes == []
 
 
 def test_non_type6_payload_does_not_write_a_frame(board):
-    # Only type 6 reaches the LED-control branch; other types fall through
+    # Only type 6 reaches the LED command branch; other types fall through
     # to the E84/GYRO-300 style handlers below it.
     result = board.data_process({'port_no': 1, 'type': 4, 'ledboard_state': 1})
 
     assert board.device.writes == []
 
 
+# --- code_id=0: LED query ----------------------------------------------------
+
+@pytest.fixture()
+def publishing_board(board, monkeypatch):
+    # AEI mode so the outbound board state message carries the type-6
+    # traffic code, and a mock broker client to capture publications.
+    monkeypatch.setattr(settings, 'DEVICE_TYPE', 1)
+    board.mqtt_svc = MagicMock()
+    return board
+
+
+def test_query_single_port_publishes_one_board_state_message(publishing_board):
+    result = publishing_board.data_process(
+        {'port_no': 2, 'type': 6, 'code_id': 0})
+
+    assert result is True
+    published = [c.args[0] for c in publishing_board.mqtt_svc.publish.call_args_list]
+    assert len(published) == 1
+    assert published[0]['port_no'] == 2
+    assert published[0]['type'] == 6
+    assert published[0]['code_id'] == settings.LEDBOARD_QUERY
+    assert published[0]['led_states'] == '0000'  # nothing commanded yet
+    assert 'occurred_at' in published[0]
+
+
+def test_query_single_port_reports_commanded_led_states(publishing_board):
+    publishing_board.data_process(led_control_payload(port_no=1, led_no=3, led_state=5))
+
+    publishing_board.data_process({'port_no': 1, 'type': 6, 'code_id': 0})
+
+    published = [c.args[0] for c in publishing_board.mqtt_svc.publish.call_args_list]
+    assert published[-1]['port_no'] == 1
+    assert published[-1]['code_id'] == settings.LEDBOARD_QUERY
+    assert published[-1]['led_states'] == '0050'
+
+
+def test_query_all_ports_publishes_one_message_per_board_port(publishing_board):
+    # Query-all (no port_no) is fanned out to every board; board 1 answers
+    # for its own ports 1-2 only, one message per port.
+    result = publishing_board.data_process({'type': 6, 'code_id': 0})
+
+    assert result is True
+    published = [c.args[0] for c in publishing_board.mqtt_svc.publish.call_args_list]
+    assert [m['port_no'] for m in published] == [1, 2]
+    for message in published:
+        assert message['type'] == 6
+        assert message['code_id'] == settings.LEDBOARD_QUERY
+        assert message['led_states'] == '0000'
+
+
+def test_query_all_skips_ports_beyond_load_port_number(publishing_board, monkeypatch):
+    monkeypatch.setattr(settings, 'LOAD_PORT_NUMBER', 1)
+
+    publishing_board.data_process({'type': 6, 'code_id': 0})
+
+    published = [c.args[0] for c in publishing_board.mqtt_svc.publish.call_args_list]
+    assert [m['port_no'] for m in published] == [1]
+
+
+# --- code_id=2: set whole ports -----------------------------------------------
+
+def test_code_id2_sets_multiple_ports_from_led_states_codes(board):
+    result = board.data_process({'type': 6, 'code_id': 2, 'ports': [
+        {'port_no': 1, 'led_states': '1204'},
+        {'port_no': 2, 'led_states': '0350'},
+    ]})
+
+    assert result is True
+    # Solid digits write immediately in Switch/RFID/E84/Port order; flashed
+    # digits (4-6) register a blink and write on the blinker tick.
+    assert board.device.writes == [
+        ['C', FUNC_BITS_PORT1['Switch'], STATE_COLOR[1]],   # port 1 Switch Green
+        ['C', FUNC_BITS_PORT1['RFID'], STATE_COLOR[2]],     # port 1 RFID Blue
+        ['C', FUNC_BITS_PORT1['E84'], STATE_COLOR[0]],      # port 1 E84 None
+        # port 1 Port flashed Green: blink, written on the blinker tick
+        ['C', FUNC_BITS_PORT2['Switch'], STATE_COLOR[0]],   # port 2 Switch None
+        ['C', FUNC_BITS_PORT2['RFID'], STATE_COLOR[3]],     # port 2 RFID Red
+        # port 2 E84 flashed Blue: blink, written on the blinker tick
+        ['C', FUNC_BITS_PORT2['Port'], STATE_COLOR[0]],     # port 2 Port None
+    ]
+    assert board._blink == {
+        ('Port', 1): {'color': 'Green', 'on': True},        # port 1 Port flashed Green
+        ('E84', 2): {'color': 'Blue', 'on': True},          # port 2 E84 flashed Blue
+    }
+    assert board.get_port_states(1) == '1204'
+    assert board.get_port_states(2) == '0350'
+
+
+def test_code_id2_skips_ports_belonging_to_the_other_board(board):
+    # Board 1 only serves ports 1-2; a port 3-4 entry is not this board's.
+    result = board.data_process({'type': 6, 'code_id': 2, 'ports': [
+        {'port_no': 3, 'led_states': '1111'},
+    ]})
+
+    assert result is True
+    assert board.device.writes == []
+    assert board._blink == {}
+
+
+def test_code_id2_invalid_led_states_rejects_the_whole_message(board):
+    # Atomic application: one invalid entry means nothing is applied.
+    result = board.data_process({'type': 6, 'code_id': 2, 'ports': [
+        {'port_no': 1, 'led_states': '1111'},
+        {'port_no': 2, 'led_states': '9999'},  # digit 9 is not a LED state
+    ]})
+
+    assert result is True
+    assert board.device.writes == []
+    assert board._blink == {}
+
+
+def test_code_id2_malformed_entries_are_rejected(board):
+    for bad_ports in (
+        [{'port_no': 1}],                        # missing led_states
+        [{'led_states': '1111'}],                # missing port_no
+        [{'port_no': '1', 'led_states': '1111'}],  # non-int port_no
+        [{'port_no': 1, 'led_states': 1111}],    # non-string led_states
+        [{'port_no': 1, 'led_states': '111'}],   # too short
+    ):
+        result = board.data_process({'type': 6, 'code_id': 2, 'ports': bad_ports})
+
+        assert result is True
+        assert board.device.writes == []
+
+
+def test_code_id2_without_ports_list_is_rejected(board):
+    for payload in ({'type': 6, 'code_id': 2},
+                    {'type': 6, 'code_id': 2, 'ports': '1111'},
+                    {'type': 6, 'code_id': 2, 'ports': []}):
+        result = board.data_process(payload)
+
+        assert result is True
+        assert board.device.writes == []
+
+
+# --- code_id: missing or unknown ----------------------------------------------
+
+@pytest.mark.parametrize('code_id', [None, 3, 99])
+def test_type6_missing_or_unknown_code_id_is_ignored(board, code_id):
+    payload = {'port_no': 1, 'type': 6, 'led_no': 1, 'led_state': 1}
+    if code_id is not None:
+        payload['code_id'] = code_id
+
+    result = board.data_process(payload)
+
+    # The former no-code_id format is no longer accepted; unknown code_id
+    # values are logged and ignored.
+    assert result is True
+    assert board.device.writes == []
+    assert board._blink == {}
+
+
 # --- inbound MQTT dispatch: on_message -> _handle_ipc_message -> _handle_aei_message ---
 
 def test_aei_topic_type6_message_is_routed_to_device(svc, board):
     payload = led_control_payload(port_no=1, led_no=3, led_state=2)
+    msg = FakeMsg('IPC', json.dumps(payload).encode())
+
+    asyncio.run(svc.on_message(msg))
+
+    assert list(board.cmd_queue) == [payload]
+
+
+def test_aei_topic_type6_without_port_no_is_fanned_out(svc, board):
+    # A query-all (code_id=0) or multi-port set (code_id=2) carries no
+    # top-level port_no; _route_to_device fans it out to every enabled
+    # board. Board 2 is disabled here, so only board 1 receives it.
+    payload = {'type': 6, 'code_id': 0}
     msg = FakeMsg('IPC', json.dumps(payload).encode())
 
     asyncio.run(svc.on_message(msg))
