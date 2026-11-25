@@ -411,7 +411,6 @@ class LEDButton(threading.Thread):
         """
         data = OrderedDict()
         data['port_no'] = port_no
-        data['dual_port'] = 0
         # LED-traffic type code: 6 in AEI mode (DEVICE_TYPE=1), 4 otherwise.
         data['type'] = 6 if settings.DEVICE_TYPE == 1 else 4
         data['code_id'] = code_id

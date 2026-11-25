@@ -66,10 +66,9 @@ def test_publish_board_state_carries_led_states():
 
     (data,) = device.mqtt_svc.payloads
     assert data['port_no'] == 1
-    assert data['dual_port'] == 0
     assert data['code_id'] == 10
     assert data['led_states'] == '2050'
-    assert list(data.keys()) == ['port_no', 'dual_port', 'type', 'code_id', 'led_states', 'occurred_at']
+    assert list(data.keys()) == ['port_no', 'type', 'code_id', 'led_states', 'occurred_at']
 
 
 def test_led_states_defaults_to_zeros_when_never_commanded():
