@@ -17,7 +17,7 @@ dependencies = [
     "bcrypt<=4.0.1",
     "psutil",
     "pyserial",
-    "pywin32",
+    "pywin32; sys_platform == 'win32'",
     "fastapi<0.100.0",
     "aiomqtt>=2.5.1",
 ]

@@ -141,41 +141,41 @@ if sys.platform == "win32":
     import win32api
     import win32con
 
-# (Add the logging setup code from step 1 here)
+    # (Add the logging setup code from step 1 here)
 
-def console_ctrl_handler(ctrl_type):
-    global app_logger
-    if ctrl_type == win32con.CTRL_C_EVENT:
-        # app_logger.warning("CTRL_C_EVENT received! Performing cleanup...")
-        # Add your cleanup code here
-        return True  # Indicate that we handled the event (prevents default termination)
-    elif ctrl_type == win32con.CTRL_BREAK_EVENT:
-        # app_logger.warning("CTRL_BREAK_EVENT received! Performing cleanup before exiting...")
-        app_logger.warning("CTRL+BREAK event received!")
-        # This is where you put your code to save data, close files, etc.
-        # You have a limited time to perform cleanup before Windows might force-terminate.
-        # app_logger.info("Simulating cleanup for 3 seconds...")
-        # time.sleep(3)
-        # app_logger.info("Cleanup complete. Exiting gracefully.")
-        return False  # Return False to allow the default termination (closing the window)
-    elif ctrl_type == win32con.CTRL_CLOSE_EVENT:
-        # app_logger.warning("CTRL_CLOSE_EVENT (Close button) clicked! Performing cleanup before exiting...")
-        app_logger.warning("CLOSE event received!")
-        # app_logger.info("Simulating cleanup for 3 seconds...")
-        # time.sleep(3)
-        # app_logger.info("Cleanup complete. Exiting gracefully.")
-        return False
-    elif ctrl_type == win32con.CTRL_LOGOFF_EVENT:
-        # app_logger.critical("CTRL_LOGOFF_EVENT received! User logging off. Performing urgent cleanup...")
-        app_logger.warning("LOGOFF event received!")
-        # Be very quick with cleanup here, system is shutting down/logging off
-        return False
-    elif ctrl_type == win32con.CTRL_SHUTDOWN_EVENT:
-        # app_logger.critical("CTRL_SHUTDOWN_EVENT received! System shutting down. Performing urgent cleanup...")
-        app_logger.warning("SHUTDOWN event received!")
-        # Be very quick with cleanup here
-        return False
-    return False # For unhandled events, let the system handle them
+    def console_ctrl_handler(ctrl_type):
+        global app_logger
+        if ctrl_type == win32con.CTRL_C_EVENT:
+            # app_logger.warning("CTRL_C_EVENT received! Performing cleanup...")
+            # Add your cleanup code here
+            return True  # Indicate that we handled the event (prevents default termination)
+        elif ctrl_type == win32con.CTRL_BREAK_EVENT:
+            # app_logger.warning("CTRL_BREAK_EVENT received! Performing cleanup before exiting...")
+            app_logger.warning("CTRL+BREAK event received!")
+            # This is where you put your code to save data, close files, etc.
+            # You have a limited time to perform cleanup before Windows might force-terminate.
+            # app_logger.info("Simulating cleanup for 3 seconds...")
+            # time.sleep(3)
+            # app_logger.info("Cleanup complete. Exiting gracefully.")
+            return False  # Return False to allow the default termination (closing the window)
+        elif ctrl_type == win32con.CTRL_CLOSE_EVENT:
+            # app_logger.warning("CTRL_CLOSE_EVENT (Close button) clicked! Performing cleanup before exiting...")
+            app_logger.warning("CLOSE event received!")
+            # app_logger.info("Simulating cleanup for 3 seconds...")
+            # time.sleep(3)
+            # app_logger.info("Cleanup complete. Exiting gracefully.")
+            return False
+        elif ctrl_type == win32con.CTRL_LOGOFF_EVENT:
+            # app_logger.critical("CTRL_LOGOFF_EVENT received! User logging off. Performing urgent cleanup...")
+            app_logger.warning("LOGOFF event received!")
+            # Be very quick with cleanup here, system is shutting down/logging off
+            return False
+        elif ctrl_type == win32con.CTRL_SHUTDOWN_EVENT:
+            # app_logger.critical("CTRL_SHUTDOWN_EVENT received! System shutting down. Performing urgent cleanup...")
+            app_logger.warning("SHUTDOWN event received!")
+            # Be very quick with cleanup here
+            return False
+        return False # For unhandled events, let the system handle them
 
 if __name__ == '__main__':
     app_logger.info("Application is starting...")
@@ -185,14 +185,13 @@ if __name__ == '__main__':
         if win32api.SetConsoleCtrlHandler(console_ctrl_handler, True) == 0:
             app_logger.error("Error: Could not set console control handler.")
             sys.exit(1)
-    else:
-        app_logger.info("Not on Windows. CTRL_BREAK_EVENT handler will not be active.")
 
     # app_logger.info("Python console app is running. Try pressing Ctrl+Break, Ctrl+C, or clicking the Close (X) button.")
     app_logger.info("Console app is running...")
 
-    disable_quick_edit_mode()
-    # print("If Quick Edit Mode was successfully disabled, clicking will not pause the application.")
+    if sys.platform == "win32":
+        disable_quick_edit_mode()
+        # print("If Quick Edit Mode was successfully disabled, clicking will not pause the application.")
 
     app_logger.info("Console window start")
 
