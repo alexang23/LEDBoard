@@ -21,7 +21,7 @@ An inbound MQTT message carrying type 6 that sets one named LED on one port to o
 _Avoid_: type-6 message used alone, LED command
 
 **Board state message**:
-An outbound MQTT message the board publishes to report its `code_id` status value (initial status, LED update, reset-button press, or mode-button press) together with the port's `led_states` LED state code and the LED-traffic type code (6 in AEI mode, 4 in GYRO-300 mode). Note: this `code_id` is distinct from the equipment code ID carried by inbound equipment state messages, despite sharing the name. Formerly keyed `ledboard_state`.
+An outbound MQTT message the board publishes to report its `code_id` status value (initial status, LED update, reset-button press, mode-button press, E84-button press, or RFID-button press) together with the port's `led_states` LED state code and the LED-traffic type code (6 in AEI mode, 4 in GYRO-300 mode). Note: this `code_id` is distinct from the equipment code ID carried by inbound equipment state messages, despite sharing the name. Formerly keyed `ledboard_state`.
 _Avoid_: status message, heartbeat
 
 **LED update**:

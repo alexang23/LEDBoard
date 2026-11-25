@@ -46,7 +46,9 @@ class Settings(BaseSettings):
 	LEDBOARD_INITIAL:int = 0
 	LEDBOARD_RESET:int = 1
 	LEDBOARD_MODE:int = 2
-	LEDBOARD_LED:int = 3
+	LEDBOARD_E84:int = 3
+	LEDBOARD_RFID:int = 4
+	LEDBOARD_LED:int = 5
 
 	LEDBOARD2_ENABLE:bool = False
 	LEDBOARD2_COM:int = 10

@@ -897,21 +897,37 @@ class LEDButton(threading.Thread):
                     self.device.write(button)
 
                 if res[self.idx[5]] == 49 and self.status[self.idx[5]] == 48:
+                    if time.time() - self.btntime[5] > settings.LEDBOARD_BUTTON_TIME:
+                        port_no = 3 if self.board == 2 else 1
+                        self.btntime[5] = self._publish_board_state(port_no, settings.LEDBOARD_E84)
+
                     res[self.idx[5]] = 48
                     button = ['B', self.idx[5]]
                     self.device.write(button)
 
                 if res[self.idx[6]] == 49 and self.status[self.idx[6]] == 48:
+                    if time.time() - self.btntime[6] > settings.LEDBOARD_BUTTON_TIME:
+                        port_no = 3 if self.board == 2 else 1
+                        self.btntime[6] = self._publish_board_state(port_no + 1, settings.LEDBOARD_E84)
+
                     res[self.idx[6]] = 48
                     button = ['B', self.idx[6]]
                     self.device.write(button)
 
                 if res[self.idx[7]] == 49 and self.status[self.idx[7]] == 48:
+                    if time.time() - self.btntime[7] > settings.LEDBOARD_BUTTON_TIME:
+                        port_no = 3 if self.board == 2 else 1
+                        self.btntime[7] = self._publish_board_state(port_no, settings.LEDBOARD_RFID)
+
                     res[self.idx[7]] = 48
                     button = ['B', self.idx[7]]
                     self.device.write(button)
 
                 if res[self.idx[8]] == 49 and self.status[self.idx[8]] == 48:
+                    if time.time() - self.btntime[8] > settings.LEDBOARD_BUTTON_TIME:
+                        port_no = 3 if self.board == 2 else 1
+                        self.btntime[8] = self._publish_board_state(port_no + 1, settings.LEDBOARD_RFID)
+
                     res[self.idx[8]] = 48
                     button = ['B', self.idx[8]]
                     self.device.write(button)

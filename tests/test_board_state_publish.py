@@ -131,7 +131,7 @@ def test_send_event_type_is_6_in_aei_mode(monkeypatch):
 
 
 def test_led_update_flush_publishes_ledboard_led():
-    assert settings.LEDBOARD_LED == 3
+    assert settings.LEDBOARD_LED == 5
     device = make_device(1, {('Switch', 1): 2})
     device._dirty_ports.add(1)
     device._flush_led_updates()
