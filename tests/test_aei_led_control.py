@@ -48,7 +48,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from config import settings
-from device_io import LEDButton
 from mqtt_svc2 import MQTTSvc
 
 
@@ -105,12 +104,13 @@ def led_control_payload(port_no=1, led_no=1, led_state=1, code_id=1):
 # --- fixtures ---------------------------------------------------------------
 
 @pytest.fixture()
-def board(monkeypatch, tmp_path):
-    # Real LEDButton for board 1; log files go to tmp_path so the test run
-    # stays hermetic. The serial device starts as None (as in production)
+def board(monkeypatch, tmp_path, ledbutton_cls):
+    # Real LEDButton for board 1 (ledbutton_cls fixture: both device_io and
+    # its Linux copy device_io_linux); log files go to tmp_path so the test
+    # run stays hermetic. The serial device starts as None (as in production)
     # and is swapped for FakeSerial by each test.
     monkeypatch.chdir(tmp_path)
-    device = LEDButton(devPath='COM7', board=1, mqtt_svc=None, log=MagicMock())
+    device = ledbutton_cls(devPath='COM7', board=1, mqtt_svc=None, log=MagicMock())
     device.device = FakeSerial()
     return device
 

@@ -27,7 +27,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from config import settings
-from device_io import LEDButton
 from routers.led import (
     LedPortStateRequest,
     LedPortStates,
@@ -67,17 +66,17 @@ class StubController:
 # --- fixtures ---------------------------------------------------------------
 
 @pytest.fixture()
-def board(monkeypatch, tmp_path):
+def board(monkeypatch, tmp_path, ledbutton_cls):
     monkeypatch.chdir(tmp_path)
-    device = LEDButton(devPath='COM7', board=1, mqtt_svc=None, log=MagicMock())
+    device = ledbutton_cls(devPath='COM7', board=1, mqtt_svc=None, log=MagicMock())
     device.device = FakeSerial()
     return device
 
 
 @pytest.fixture()
-def board2(monkeypatch, tmp_path):
+def board2(monkeypatch, tmp_path, ledbutton_cls):
     monkeypatch.chdir(tmp_path)
-    device = LEDButton(devPath='COM7', board=2, mqtt_svc=None, log=MagicMock())
+    device = ledbutton_cls(devPath='COM7', board=2, mqtt_svc=None, log=MagicMock())
     device.device = FakeSerial()
     return device
 

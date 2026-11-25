@@ -8,7 +8,13 @@ from config import settings
 from mqtt_svc2 import MQTTSvc
 
 if settings.DEVICE_TYPE == 1:
-    from device_io import LEDButton
+    # Mode first, then platform: device_io_linux is the Linux deployment copy
+    # of device_io (AEI mode). The non-win32 branch mirrors Controller._dev_path,
+    # which maps COM numbers to /dev/ttyUSB* / ttyS* paths.
+    if sys.platform == 'win32':
+        from device_io import LEDButton
+    else:
+        from device_io_linux import LEDButton
 else:
     from device2 import LEDButton
 
