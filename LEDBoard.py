@@ -30,8 +30,7 @@ async def _lifespan(app: FastAPI):
     app.state.tsc = tsc
     app.state.receive_queue = collections.deque()
     
-    tsc_thread = Thread(target=tsc.run)
-    tsc_thread.setDaemon(True)
+    tsc_thread = Thread(target=tsc.run, daemon=True)
     tsc_thread.start()
     
     app.state.glogger.info("########## connection done, starting fastapi app now")

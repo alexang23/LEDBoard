@@ -300,7 +300,7 @@ class MQTTSvc(Thread):
         self.connect = False
 
         Thread.__init__(self)
-        self.setDaemon(True)
+        self.daemon = True
         self.start()
 
     def connect_MQTT_service(self):
